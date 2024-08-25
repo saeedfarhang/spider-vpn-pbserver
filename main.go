@@ -93,8 +93,15 @@ func main() {
 	app.OnModelAfterCreate("order_approval").Add(func( e *core.ModelEvent) error {
 		order_approval := e.Model.(*models.Record)
 		orderId := order_approval.GetString("order")
-		app.Dao().DB().NewQuery(`UPDATE orders SET status="WAIT_FOR_APPROVE", order_approval={:order_approval_id} WHERE id={:order_id}`).
-			Bind(dbx.Params{ "order_id": orderId, "order_approval_id": order_approval.Id}).Execute()
+		order, err := app.Dao().FindRecordById("order", orderId)
+		if err!= nil {
+			return nil
+		}
+		order.Set("status", "WAIT_FOR_APPROVE")
+		order.Set("order_approval", order_approval.Id)
+		if err := app.Dao().SaveRecord(order); err != nil {
+			return err
+		}
 		return nil
 	})
 
@@ -204,6 +211,7 @@ func main() {
 			if err := app.Dao().SaveRecord(order); err != nil {
 				return err
 			}
+			
 		}
 	
 		return nil
@@ -246,20 +254,22 @@ func main() {
 		}
 		is_approved := order_approval.GetBool(("is_approved"))
 		if (is_approved){
-			log.Print(is_approved, payment)
-			app.Dao().DB().NewQuery(`UPDATE orders SET status="COMPLETE" WHERE id={:order_id};
-								UPDATE payments SET status="PAID" WHERE id = {:payment_id}`).
-			Bind(dbx.Params{ "order_id": orderId, "payment_id": payment.Id}).Execute()
+			fmt.Println("is_approved",orderId, payment)
+			order, err := app.Dao().FindRecordById("orders", orderId)
+			if err!= nil {
+				return err
+			}
+			order.Set("status", "COMPLETE")
+			payment.Set("status", "PAID")
+			if err := app.Dao().SaveRecord(order); err != nil {
+				return err
+			}
+			if err := app.Dao().SaveRecord(payment); err != nil {
+				return err
+			}
 		}
 		return nil
 	})
-
-	// // create outline vpn config base on selected plan
-	// app.OnModelAfterCreate("vpn_configs").Add(func(e *core.ModelEvent) error {
-	// 	app.Dao().DB().NewQuery(`UPDATE vpn_configs SET outlineConnection={:outlineLink} WHERE id={:id}`).
-	// 		Bind(dbx.Params{ "id": e.Model.GetId(), "outlineLink": "test"}).Execute()
-	// 	return nil
-	// })
 
     if err := app.Start(); err != nil {
         log.Fatal(err)
