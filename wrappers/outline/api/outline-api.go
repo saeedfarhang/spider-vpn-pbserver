@@ -1,6 +1,7 @@
 package outlineApi
 
 import (
+	"bytes"
 	"crypto/tls"
 	"encoding/json"
 	"fmt"
@@ -22,94 +23,178 @@ type AccessKey struct {
 	} `json:"dataLimit,omitempty"`
 }
 
+// func OutlineApiCall(method string, url string, requestBody interface{}, result any) (any, error) {
+// 	tr := &http.Transport{
+// 		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+// 	}
+// 	client := &http.Client{Transport: tr}
 
-func OutlineApiCall(method string, url string, result any)(any, error){
+// 	var bodyReader *bytes.Reader
+// 	if requestBody != nil {
+// 		// Marshal the requestBody into JSON if it's not nil
+// 		jsonBody, err := json.Marshal(requestBody)
+// 		if err != nil {
+// 			return nil, fmt.Errorf("error marshaling request body: %w", err)
+// 		}
+// 		bodyReader = bytes.NewReader(jsonBody)
+		
+// 		// Print the JSON body for debugging
+// 		fmt.Println("Request body JSON:", string(jsonBody))
+// 	} else {
+// 		bodyReader = nil
+// 	}
+
+// 	// Create the HTTP request
+//     fmt.Println(method, url, bodyReader, "\n\n\n",)
+// 	req, err := http.NewRequest(method, url, bodyReader)
+
+// 	if err != nil {
+// 		return nil, fmt.Errorf("error creating request: %w", err)
+// 	}
+
+// 	// Set the Content-Type header to application/json
+// 	if requestBody != nil {
+// 		req.Header.Set("Content-Type", "application/json")
+// 	}
+
+// 	resp, err := client.Do(req)
+// 	if err != nil {
+// 		return nil, fmt.Errorf("error sending request: %w", err)
+// 	}
+// 	defer resp.Body.Close()
+
+// 	respBody, err := io.ReadAll(resp.Body)
+// 	if err != nil {
+// 		return nil, fmt.Errorf("error reading response body: %w", err)
+// 	}
+
+// 	// Print the response body for debugging
+// 	fmt.Println("Response body JSON:", string(respBody))
+
+// 	err = json.Unmarshal(respBody, &result)
+// 	if err != nil {
+// 		return nil, fmt.Errorf("error unmarshaling response body: %w", err)
+// 	}
+
+// 	return result, nil
+// }
+
+func OutlineApiCall(method string, url string, requestBody interface{}, result any) (any, error) {
 	tr := &http.Transport{
 		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
 	}
 	client := &http.Client{Transport: tr}
 
-	req, err := http.NewRequest(method, url, nil)
-	if err != nil {
-		return nil, err
+	var bodyReader *bytes.Reader
+	if requestBody != nil {
+		// Marshal the requestBody into JSON if it's not nil
+		jsonBody, err := json.Marshal(requestBody)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling request body: %w", err)
+		}
+		bodyReader = bytes.NewReader(jsonBody)
+		
+		// Print the JSON body for debugging
+		fmt.Println("Request body JSON:", string(jsonBody))
+	} else {
+		bodyReader = nil
 	}
 
+	// Create the HTTP request
+    var req *http.Request
+    var err error
+    if bodyReader != nil {
+        req, err = http.NewRequest(method, url, bodyReader)
+
+    }else{
+        req, err = http.NewRequest(method, url, nil)
+    }
+
+	if err != nil {
+		return nil, fmt.Errorf("error creating request: %w", err)
+	}
+
+	// Set the Content-Type header to application/json
+	if requestBody != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
+
+	// Send the request
 	resp, err := client.Do(req)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("error sending request: %w", err)
 	}
-
 	defer resp.Body.Close()
 
-	body, err := io.ReadAll(resp.Body)
+	// Read the response body
+	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("error reading response body: %w", err)
 	}
-	err = json.Unmarshal(body, &result)
-	if err != nil {
-		return nil, err
+
+	// Print the response body for debugging
+	fmt.Println("Response body JSON:", string(respBody))
+
+	// Unmarshal the response body if a result is expected
+	if result != nil {
+		err = json.Unmarshal(respBody, &result)
+		if err != nil {
+			return nil, fmt.Errorf("error unmarshaling response body: %w", err)
+		}
 	}
 
 	return result, nil
 }
 
-func ListAccessKeys() ([]AccessKey, error) {
+
+func ListAccessKeys(apiURL string) ([]AccessKey, error) {
 	var result struct {
 		AccessKeys []AccessKey `json:"accessKeys"`
 	}
-	resp, err := OutlineApiCall("GET","https://backup.heycodinguy.site:3843/tVhaFf05N6k8tHKXk3UZ-w/access-keys/", &result)
+	_, err := OutlineApiCall("GET", apiURL+"/access-keys/", nil, &result)
 	if err != nil {
 		fmt.Println("Error:", err)
 		return nil, err
 	}
-	accessKeysResult, ok := resp.(*struct {
-		AccessKeys []AccessKey `json:"accessKeys"`
-	})
-	if !ok {
-		fmt.Println("Error: Type assertion failed")
+	return result.AccessKeys, nil
+}
+
+func CreateAccessKey(apiURL string, name string, limit int64) (*AccessKey, error) {
+	type CreateData struct {
+		Name  string `json:"name"`
+		Limit struct {
+			Bytes int64 `json:"bytes"`
+		} `json:"limit"`
+	}
+	var result AccessKey
+    createData := CreateData{
+		Name: name,
+		Limit: struct {
+			Bytes int64 `json:"bytes"`
+		}{
+			Bytes: limit * 1e+9,
+		},
+	}
+
+	// Perform the API call and unmarshal the response into result
+	_, err := OutlineApiCall("POST", apiURL+"/access-keys/", createData, &result)
+	if err != nil {
 		return nil, err
 	}
 
-	return accessKeysResult.AccessKeys, nil
-}
-
-func CreateAccessKey(apiURL string) (*AccessKey, error) {
-    req, err := http.NewRequest("POST", apiURL+"/access-keys", nil)
-    if err != nil {
-        return nil, err
-    }
-
-    client := &http.Client{}
-    resp, err := client.Do(req)
-    if err != nil {
-        return nil, err
-    }
-    defer resp.Body.Close()
-
-    var key AccessKey
-    err = json.NewDecoder(resp.Body).Decode(&key)
-    if err != nil {
-        return nil, err
-    }
-
-    return &key, nil
+	// Return the address of the result variable
+	return &result, nil
 }
 
 // GetAccessKey retrieves details of a specific access key by its ID.
 func GetAccessKey(apiURL, keyID string) (*AccessKey, error) {
-    resp, err := http.Get(apiURL + "/access-keys/" + keyID)
-    if err != nil {
-        return nil, err
-    }
-    defer resp.Body.Close()
-
-    var key AccessKey
-    err = json.NewDecoder(resp.Body).Decode(&key)
+    var result AccessKey
+	_, err := OutlineApiCall("GET", apiURL+"/access-keys/"+keyID, nil, &result)
     if err != nil {
         return nil, err
     }
 
-    return &key, nil
+    return &result, nil
 }
 
 // RenameAccessKey renames an existing access key on the Outline server.
@@ -127,34 +212,24 @@ func RenameAccessKey(apiURL, keyID, newName string) error {
     defer resp.Body.Close()
 
     if resp.StatusCode != http.StatusOK {
-        bodyBytes, _ := ioutil.ReadAll(resp.Body)
+        bodyBytes, _ := io.ReadAll(resp.Body)
         return fmt.Errorf("failed to rename access key: %s", string(bodyBytes))
     }
 
     return nil
 }
 
-// DeleteAccessKey deletes an access key from the Outline server.
 func DeleteAccessKey(apiURL, keyID string) error {
-    req, err := http.NewRequest("DELETE", apiURL+"/access-keys/"+keyID, nil)
+    var res any
+    res, err := OutlineApiCall("DELETE", apiURL+"/access-keys/"+string(keyID), nil, &res)
     if err != nil {
+        fmt.Println("Error deleting access key:", err)
         return err
     }
-
-    client := &http.Client{}
-    resp, err := client.Do(req)
-    if err != nil {
-        return err
-    }
-    defer resp.Body.Close()
-
-    if resp.StatusCode != http.StatusOK {
-        bodyBytes, _ := ioutil.ReadAll(resp.Body)
-        return fmt.Errorf("failed to delete access key: %s", string(bodyBytes))
-    }
-
+    fmt.Println("Delete response:", &res)
     return nil
 }
+
 
 // SetDataLimit sets a data transfer limit for all access keys on the Outline server.
 func SetDataLimit(apiURL string, limit int64) error {

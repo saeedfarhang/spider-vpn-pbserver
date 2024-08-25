@@ -1,9 +1,14 @@
 package main
 
 import (
+	"encoding/json"
+	"fmt"
 	"log"
 	"os"
+	helpers "spider-vpn/helpers"
 	outlineApi "spider-vpn/wrappers/outline/api"
+	"strings"
+	"time"
 
 	"github.com/pocketbase/dbx"
 	"github.com/pocketbase/pocketbase"
@@ -93,12 +98,142 @@ func main() {
 		return nil
 	})
 
-	app.OnModelAfterUpdate("orders").Add(func( e *core.ModelEvent) error {
-		a, err := outlineApi.ListAccessKeys()
-		log.Print(a)
-		if err != nil{
+	app.OnModelAfterUpdate("orders").Add(func(e *core.ModelEvent) error {
+		order, ok := e.Model.(*models.Record)
+		if !ok {
+			log.Print("Error: Could not cast model to *models.Record")
+			return fmt.Errorf("model casting error")
+		}
+	
+		if order.GetString("status") != "COMPLETE" || order.GetString("vpn_config") != "" {
+			return nil
+		}
+	
+		planId := order.GetString("plan")
+		plan, err := app.Dao().FindFirstRecordByData("plans", "id", planId)
+		if err != nil {
+			log.Print("Error retrieving plan: ", err)
 			return err
 		}
+		if plan == nil {
+			log.Print("Error: Plan is nil")
+			return fmt.Errorf("plan not found")
+		}
+	
+		serverIds := plan.GetStringSlice("servers")
+		if len(serverIds) == 0 {
+			log.Print("Error: No servers associated with the plan")
+			return fmt.Errorf("no servers associated with the plan")
+		}
+	
+		enableStatusExpr := dbx.HashExp{"enable": true,}
+	
+		// Create a raw query with placeholders for each ID
+		placeholders := make([]string, len(serverIds))
+		params := dbx.Params{}
+		for i, id := range serverIds {
+			placeholders[i] = fmt.Sprintf("{:id%d}", i)
+			params[fmt.Sprintf("id%d", i)] = id
+		}
+	
+		// Join the placeholders into a single string
+		idsExpr := dbx.NewExp(fmt.Sprintf("id IN (%s)", strings.Join(placeholders, ", ")), params)
+	
+		// Add an ordering expression to sort by capacity in descending order
+	
+		// Combine all expressions and limit the result to 1
+		query := app.Dao().RecordQuery("servers").
+        AndWhere(idsExpr).
+        AndWhere(enableStatusExpr).
+        OrderBy("capacity DESC").
+        Limit(1)
+		servers := []*models.Record{}
+		if err := query.All(&servers); err != nil {
+			return err
+		}
+
+		if len(servers) == 0 {
+			log.Print("Error: No servers found")
+			return fmt.Errorf("no servers found")
+		}
+	
+		// Handle the result
+		server := servers[0]
+		if server == nil {
+			log.Print("Error: Server is nil")
+			return fmt.Errorf("server not found")
+		}
+	
+		log.Print("server connection: ", server.GetString("hostname"))
+		if server.GetString("type") == "OUTLINE" {
+			apiUrl := server.GetString("management_api_url")
+			vpnConfigsCollection, err := app.Dao().FindCollectionByNameOrId("vpn_configs")
+			if err !=nil {
+				return nil
+			}
+			vpnConfig := models.NewRecord(vpnConfigsCollection)
+			if err := app.Dao().SaveRecord(vpnConfig); err != nil {
+				return err
+			}
+			accessKeyConfig, err := outlineApi.CreateAccessKey(apiUrl, vpnConfig.Id, int64(plan.GetInt("usage_limit_gb")))
+			if err != nil {
+				return nil
+			}
+			// create new vpn config 
+			
+
+			startDate := time.Now()
+			endDate:= helpers.AddDays(plan.GetInt("date_limit"), startDate)
+
+			jsonAccessKeyConfig, err := json.Marshal(accessKeyConfig)
+			if err != nil {
+				return nil
+			}
+			vpnConfig.Set("plan", planId)
+			vpnConfig.Set("user", order.GetString("user"))
+			vpnConfig.Set("start_date", startDate)
+			vpnConfig.Set("end_date", endDate)
+			vpnConfig.Set("type", "OUTLINE")
+			vpnConfig.Set("usage_in_gb", plan.GetInt("usage_limit_gb"))
+			vpnConfig.Set("server", server.Id)
+			vpnConfig.Set("connection_data", string(jsonAccessKeyConfig))
+			if err := app.Dao().SaveRecord(vpnConfig); err != nil {
+				return err
+			}		
+			order.Set("vpn_config", vpnConfig.GetId())
+			if err := app.Dao().SaveRecord(order); err != nil {
+				return err
+			}
+		}
+	
+		return nil
+	})
+	
+	app.OnModelBeforeDelete("vpn_configs").Add(func(e *core.ModelEvent) error {
+		vpnConfig, ok := e.Model.(*models.Record)
+		server, err := app.Dao().FindRecordById("servers", vpnConfig.GetString("server"))
+		if err != nil{
+			return fmt.Errorf("model casting error")
+		}
+		if !ok {
+			log.Print("Error: Could not cast model to *models.Record")
+			return fmt.Errorf("model casting error")
+		}
+		if vpnConfig.GetString("type") == "OUTLINE"{
+			fmt.Println(vpnConfig.GetString("connection_data"))
+			connectionDataStr := vpnConfig.GetString("connection_data")
+
+			var connectionDataStruct outlineApi.AccessKey
+			err := json.Unmarshal([]byte(connectionDataStr), &connectionDataStruct)
+			if err != nil {
+				return fmt.Errorf("failed to unmarshal connection_data: %w", err)
+			}
+			fmt.Println(connectionDataStruct.ID)
+			err=outlineApi.DeleteAccessKey(server.GetString("management_api_url"), connectionDataStruct.ID)
+			if err != nil {
+				return nil
+			}
+			}
 		return nil
 	})
 
@@ -119,65 +254,15 @@ func main() {
 		return nil
 	})
 
-	// create outline vpn config base on selected plan
-	app.OnModelAfterCreate("vpn_configs").Add(func(e *core.ModelEvent) error {
-		app.Dao().DB().NewQuery(`UPDATE vpn_configs SET outlineConnection={:outlineLink} WHERE id={:id}`).
-			Bind(dbx.Params{ "id": e.Model.GetId(), "outlineLink": "test"}).Execute()
-		return nil
-	})
+	// // create outline vpn config base on selected plan
+	// app.OnModelAfterCreate("vpn_configs").Add(func(e *core.ModelEvent) error {
+	// 	app.Dao().DB().NewQuery(`UPDATE vpn_configs SET outlineConnection={:outlineLink} WHERE id={:id}`).
+	// 		Bind(dbx.Params{ "id": e.Model.GetId(), "outlineLink": "test"}).Execute()
+	// 	return nil
+	// })
 
     if err := app.Start(); err != nil {
         log.Fatal(err)
     }
 	
 }
-
-// func OutlineApiCall(method string, url string, result any)(any, error){
-// 	tr := &http.Transport{
-// 		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
-// 	}
-// 	client := &http.Client{Transport: tr}
-
-// 	req, err := http.NewRequest(method, url, nil)
-// 	if err != nil {
-// 		return nil, err
-// 	}
-
-// 	resp, err := client.Do(req)
-// 	if err != nil {
-// 		return nil, err
-// 	}
-
-// 	defer resp.Body.Close()
-
-// 	body, err := io.ReadAll(resp.Body)
-// 	if err != nil {
-// 		return nil, err
-// 	}
-// 	err = json.Unmarshal(body, &result)
-// 	if err != nil {
-// 		return nil, err
-// 	}
-
-// 	return result, nil
-// }
-
-// func ListAccessKeys() ([]AccessKey, error) {
-// 	var result struct {
-// 		AccessKeys []AccessKey `json:"accessKeys"`
-// 	}
-// 	resp, err := OutlineApiCall("GET","https://backup.heycodinguy.site:3843/tVhaFf05N6k8tHKXk3UZ-w/access-keys/", &result)
-// 	if err != nil {
-// 		fmt.Println("Error:", err)
-// 		return nil, err
-// 	}
-// 	accessKeysResult, ok := resp.(*struct {
-// 		AccessKeys []AccessKey `json:"accessKeys"`
-// 	})
-// 	if !ok {
-// 		fmt.Println("Error: Type assertion failed")
-// 		return nil, err
-// 	}
-
-// 	return accessKeysResult.AccessKeys, nil
-// }
