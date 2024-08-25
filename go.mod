@@ -1,4 +1,4 @@
-module myapp
+module spider-vpn
 
 go 1.22.0
 
