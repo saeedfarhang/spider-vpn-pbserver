@@ -5,8 +5,10 @@ import (
 	"fmt"
 	"log"
 	"os"
+	env "spider-vpn/config"
 	helpers "spider-vpn/helpers"
 	outlineApi "spider-vpn/wrappers/outline/api"
+	tgbot "spider-vpn/wrappers/tg-bot"
 	"strings"
 	"time"
 
@@ -41,18 +43,21 @@ func main() {
 
 
 	app.OnModelAfterCreate("orders").Add(func( e *core.ModelEvent) error {
-		app.Dao().DB().NewQuery(`UPDATE orders SET status="INCOMPLETE" WHERE id={:id}`).
-			Bind(dbx.Params{ "id": e.Model.GetId()}).Execute()
-			
 		orderId := e.Model.GetId()
 		order := e.Model.(*models.Record)
 		// Fetch the related plan's ID
 		planId := order.GetString("plan")
 		gatewayId := order.GetString("payment_gateway")
-
+		gateway, err := app.Dao().FindRecordById("payment_gateway", gatewayId)
+		if err !=nil{
+			return err
+		}
+		app.Dao().DB().NewQuery(`UPDATE orders SET status="INCOMPLETE" WHERE id={:id}`).
+			Bind(dbx.Params{ "id": e.Model.GetId()}).Execute()
+			
 		// Fetch related pricing records for the plan
 		pricings := []*models.Record{}
-		err := app.Dao().DB().NewQuery(`
+		err = app.Dao().DB().NewQuery(`
 			SELECT pricing.* 
 			FROM pricing 
 			JOIN plans_pricing ON plans_pricing.pricing = pricing.id 
@@ -80,11 +85,21 @@ func main() {
 			payment.Set("order", orderId)
 			payment.Set("amount", pricing.GetFloat("price"))
 			payment.Set("currency", pricing.GetString("currency"))
-			payment.Set("status", "UNPAID")
-
-			// Insert the payment into the database
-			if err := app.Dao().Save(payment); err != nil {
-				return err
+			
+			if gateway.GetString("type") == "FREE"{
+				payment.Set("status", "PAID")
+				order.Set("status", "COMPLETE")
+				if err := app.Dao().Save(payment); err != nil {
+					return err
+				}
+				if err := app.Dao().Save(order); err != nil {
+					return err
+				}
+			}else{
+				payment.Set("status", "UNPAID")
+				if err := app.Dao().Save(payment); err != nil {
+					return err
+				}
 			}
 		}
 		return nil
@@ -211,7 +226,16 @@ func main() {
 			if err := app.Dao().SaveRecord(order); err != nil {
 				return err
 			}
-			
+			tgbotWebhookServer := env.Get("TELEGRAM_WEBHOOK_URL")
+
+			user, err := app.Dao().FindRecordById("users", order.GetString("user"))
+			if err != nil{
+				return err
+			}
+			_, err = tgbot.SendVpnConfig(tgbotWebhookServer, user.Username(), vpnConfig.Id)
+			if err != nil {
+				return err
+			}
 		}
 	
 		return nil

@@ -23,61 +23,6 @@ type AccessKey struct {
 	} `json:"dataLimit,omitempty"`
 }
 
-// func OutlineApiCall(method string, url string, requestBody interface{}, result any) (any, error) {
-// 	tr := &http.Transport{
-// 		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
-// 	}
-// 	client := &http.Client{Transport: tr}
-
-// 	var bodyReader *bytes.Reader
-// 	if requestBody != nil {
-// 		// Marshal the requestBody into JSON if it's not nil
-// 		jsonBody, err := json.Marshal(requestBody)
-// 		if err != nil {
-// 			return nil, fmt.Errorf("error marshaling request body: %w", err)
-// 		}
-// 		bodyReader = bytes.NewReader(jsonBody)
-		
-// 		// Print the JSON body for debugging
-// 		fmt.Println("Request body JSON:", string(jsonBody))
-// 	} else {
-// 		bodyReader = nil
-// 	}
-
-// 	// Create the HTTP request
-//     fmt.Println(method, url, bodyReader, "\n\n\n",)
-// 	req, err := http.NewRequest(method, url, bodyReader)
-
-// 	if err != nil {
-// 		return nil, fmt.Errorf("error creating request: %w", err)
-// 	}
-
-// 	// Set the Content-Type header to application/json
-// 	if requestBody != nil {
-// 		req.Header.Set("Content-Type", "application/json")
-// 	}
-
-// 	resp, err := client.Do(req)
-// 	if err != nil {
-// 		return nil, fmt.Errorf("error sending request: %w", err)
-// 	}
-// 	defer resp.Body.Close()
-
-// 	respBody, err := io.ReadAll(resp.Body)
-// 	if err != nil {
-// 		return nil, fmt.Errorf("error reading response body: %w", err)
-// 	}
-
-// 	// Print the response body for debugging
-// 	fmt.Println("Response body JSON:", string(respBody))
-
-// 	err = json.Unmarshal(respBody, &result)
-// 	if err != nil {
-// 		return nil, fmt.Errorf("error unmarshaling response body: %w", err)
-// 	}
-
-// 	return result, nil
-// }
 
 func OutlineApiCall(method string, url string, requestBody interface{}, result any) (any, error) {
 	tr := &http.Transport{
