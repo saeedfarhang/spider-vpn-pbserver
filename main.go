@@ -34,6 +34,7 @@ type AccessKey struct {
 
 
 func main() {
+	tgbotWebhookServer := env.Get("TELEGRAM_WEBHOOK_URL")
     app := pocketbase.New()
     // serves static files from the provided public dir (if exists)
     app.OnBeforeServe().Add(func(e *core.ServeEvent) error {
@@ -81,20 +82,38 @@ func main() {
 			}
 			
 			payment.Set("user", order.GetString("user"))
-			log.Println(pricing.Get("id"), pricing.GetFloat("price"),order.GetString("user"),pricing.GetString("currency"))
 			payment.Set("order", orderId)
 			payment.Set("amount", pricing.GetFloat("price"))
 			payment.Set("currency", pricing.GetString("currency"))
+			if err := app.Dao().Save(payment); err != nil {
+				return err
+			}
 			
 			if gateway.GetString("type") == "FREE"{
+				user, err := app.Dao().FindRecordById("users", order.GetString("user"))
+				if err != nil {
+					return err
+				}
+				if user.GetBool("first_test_done"){
+					_, err = tgbot.SendVpnConfig(tgbotWebhookServer, user.Username(), "Nil")
+					if err != nil{
+						return err
+					}
+					return fmt.Errorf("duplicate test account")
+				}
 				payment.Set("status", "PAID")
-				order.Set("status", "COMPLETE")
 				if err := app.Dao().Save(payment); err != nil {
 					return err
 				}
+				order.Set("status", "COMPLETE")
 				if err := app.Dao().Save(order); err != nil {
 					return err
 				}
+				user.Set("first_test_done", true)
+				if err := app.Dao().Save(user); err != nil {
+					return err
+				}
+				
 			}else{
 				payment.Set("status", "UNPAID")
 				if err := app.Dao().Save(payment); err != nil {
@@ -232,7 +251,7 @@ func main() {
 			if err != nil{
 				return err
 			}
-			_, err = tgbot.SendVpnConfig(tgbotWebhookServer, user.Username(), vpnConfig.Id)
+			_, err = tgbot.SendVpnConfig(tgbotWebhookServer, user.Username(), order.Id)
 			if err != nil {
 				return err
 			}
