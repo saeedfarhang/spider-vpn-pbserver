@@ -7,9 +7,9 @@ import (
 	"os"
 	env "spider-vpn/config"
 	helpers "spider-vpn/helpers"
+	"spider-vpn/helpers/queries"
 	outlineApi "spider-vpn/wrappers/outline/api"
 	tgbot "spider-vpn/wrappers/tg-bot"
-	"strings"
 	"time"
 
 	"github.com/pocketbase/dbx"
@@ -17,6 +17,7 @@ import (
 	"github.com/pocketbase/pocketbase/apis"
 	"github.com/pocketbase/pocketbase/core"
 	"github.com/pocketbase/pocketbase/models"
+	"github.com/robfig/cron/v3"
 )
 
 
@@ -39,6 +40,18 @@ func main() {
     // serves static files from the provided public dir (if exists)
     app.OnBeforeServe().Add(func(e *core.ServeEvent) error {
         e.Router.GET("/*", apis.StaticDirectoryHandler(os.DirFS("./pb_public"), false))
+
+		scheduler := cron.New()
+        scheduler.AddFunc("*/1 * * * *", func() {
+			log.Printf("add function to cronjob. each 1min")
+			err:=queries.SyncVpnConfigsRemainUsage(app)
+			if err != nil{
+				log.Fatalf("Failed: %v", err)
+			}
+			queries.DeleteExpiredConfigs(app)
+		})
+
+        scheduler.Start()
         return nil
     })
 
@@ -167,29 +180,8 @@ func main() {
 			return fmt.Errorf("no servers associated with the plan")
 		}
 	
-		enableStatusExpr := dbx.HashExp{"enable": true,}
-	
-		// Create a raw query with placeholders for each ID
-		placeholders := make([]string, len(serverIds))
-		params := dbx.Params{}
-		for i, id := range serverIds {
-			placeholders[i] = fmt.Sprintf("{:id%d}", i)
-			params[fmt.Sprintf("id%d", i)] = id
-		}
-	
-		// Join the placeholders into a single string
-		idsExpr := dbx.NewExp(fmt.Sprintf("id IN (%s)", strings.Join(placeholders, ", ")), params)
-	
-		// Add an ordering expression to sort by capacity in descending order
-	
-		// Combine all expressions and limit the result to 1
-		query := app.Dao().RecordQuery("servers").
-        AndWhere(idsExpr).
-        AndWhere(enableStatusExpr).
-        OrderBy("capacity DESC").
-        Limit(1)
-		servers := []*models.Record{}
-		if err := query.All(&servers); err != nil {
+		servers, err := queries.GetActiveServers(app, serverIds)
+		if err != nil{
 			return err
 		}
 
