@@ -23,6 +23,9 @@ type AccessKey struct {
 	} `json:"dataLimit,omitempty"`
 }
 
+type AccessKeysUsage struct {
+	BytesTransferredByUserID map[string]int64 `json:"bytesTransferredByUserId"`
+}
 
 func OutlineApiCall(method string, url string, requestBody interface{}, result any) (any, error) {
 	tr := &http.Transport{
@@ -173,6 +176,16 @@ func DeleteAccessKey(apiURL, keyID string) error {
     }
     fmt.Println("Delete response:", &res)
     return nil
+}
+
+func GetAccessKeysUsages(apiURL string) (*AccessKeysUsage, error) {
+    var result AccessKeysUsage
+	_, err := OutlineApiCall("GET", apiURL+"/metrics/transfer/", nil, &result)
+    if err != nil {
+        return nil, err
+    }
+
+    return &result, nil
 }
 
 
