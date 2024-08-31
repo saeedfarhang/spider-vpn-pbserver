@@ -1,0 +1,17 @@
+version: "3.8"
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    volumes:
+      - .:/usr/src/app
+      - ./pb_data:/usr/src/app/pb_data
+    env_file:
+      - .env
+    network_mode: host
+    ports:
+      - "8090:8090"
+    command: "/docker-gs-ping serve --dev"
+    restart: "always"
