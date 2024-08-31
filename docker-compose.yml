@@ -9,10 +9,10 @@ services:
       - ./pb_data:/pb_data
     env_file:
       - .env
-    ports:
-      - "8090:8090"
     networks:
       - spider-vpn-network
+    expose:
+      - 8009
     restart: "always"
 
 networks:
