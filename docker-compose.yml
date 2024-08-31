@@ -6,7 +6,7 @@ services:
       context: .
       dockerfile: Dockerfile
     volumes:
-      - ./pb_data:/usr/src/app/pb_data
+      - ./pb_data:/pb_data
     env_file:
       - .env
     ports:
