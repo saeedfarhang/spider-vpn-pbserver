@@ -17,6 +17,6 @@ COPY . ./
 
 RUN CGO_ENABLED=0 GOOS=linux go build -o /docker-gs-ping
 
-EXPOSE 8090
+EXPOSE ${APP_PORT}
 
-CMD ["/docker-gs-ping", "serve"]
+CMD ["/docker-gs-ping", "serve", "--http=${APP_HOST}:${APP_PORT}"]
