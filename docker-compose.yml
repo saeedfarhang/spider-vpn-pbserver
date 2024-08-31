@@ -10,7 +10,7 @@ services:
     env_file:
       - .env
     ports:
-      - "8090:8090"
+      - ${APP_PORT}:${APP_PORT}
     networks:
       - spider-vpn-network
     restart: "always"
