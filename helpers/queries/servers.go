@@ -74,7 +74,7 @@ func SyncVpnConfigsRemainUsage(app *pocketbase.PocketBase)(err error){
 		err = app.Dao().RecordQuery("vpn_configs").
 						AndWhere(dbx.Not(dbx.HashExp{"connection_data": ""})).
 						// last update passed interval
-						AndWhere(dbx.NewExp("updated < {:lastUpdate}", dbx.Params{"lastUpdate": time.Now().Add(time.Minute * 1)})).
+						AndWhere(dbx.NewExp("updated < {:lastUpdate}", dbx.Params{"lastUpdate": time.Now().Add(time.Hour * 1)})).
 						OrderBy("updated").
 						Limit(100).
 						All(&vpnConfigs)

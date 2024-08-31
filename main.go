@@ -41,6 +41,7 @@ func main() {
     app.OnBeforeServe().Add(func(e *core.ServeEvent) error {
         e.Router.GET("/*", apis.StaticDirectoryHandler(os.DirFS("./pb_public"), false))
 
+		log.Println(int(time.Since(time.Now().Add(-time.Hour * 10)).Hours()))
 		scheduler := cron.New()
         scheduler.AddFunc("*/1 * * * *", func() {
 			log.Printf("add function to cronjob. each 1min")
@@ -48,7 +49,7 @@ func main() {
 			if err != nil{
 				log.Fatalf("Failed: %v", err)
 			}
-			queries.DeleteExpiredConfigs(app)
+			queries.HandleConfigsExpiry(app)
 		})
 
         scheduler.Start()

@@ -12,18 +12,19 @@ import (
 	"github.com/pocketbase/pocketbase/models"
 )
 
-func DeleteExpiredConfigs(app *pocketbase.PocketBase)(err error){
+func HandleConfigsExpiry(app *pocketbase.PocketBase)(err error){
 	expiredOrders := []*models.Record{}
 	err = app.Dao().RecordQuery("orders").
 	InnerJoin("vpn_configs", dbx.NewExp("orders.vpn_config = vpn_configs.id")).
-	AndWhere(dbx.NewExp("vpn_configs.end_date < {:nowDate}", dbx.Params{"nowDate": time.Now().Add(-time.Hour * 1)})). // Example condition for current time
-	OrWhere(dbx.NewExp("vpn_configs.remain_data_mb < 1000")). // Example condition for current time
+	AndWhere(dbx.NewExp("vpn_configs.end_date < {:nowDate}", dbx.Params{"nowDate": time.Now().Add(-time.Hour * 24)})). // condition for current time
+	OrWhere(dbx.NewExp("vpn_configs.remain_data_mb < 1000")).
 	All(&expiredOrders)
 	fmt.Println("expiredOrders", expiredOrders)
 	if err != nil {
 		log.Fatalf("Failed to execute query: %v", err)
 	}
 	tgbotWebhookServer := env.Get("TELEGRAM_WEBHOOK_URL")
+	fmt.Println(tgbotWebhookServer)
 
 	for _, expiredOrder := range expiredOrders {
 		vpnConfig, err := app.Dao().FindRecordById("vpn_configs",expiredOrder.GetString("vpn_config"))
@@ -48,8 +49,7 @@ func DeleteExpiredConfigs(app *pocketbase.PocketBase)(err error){
 			webhooks.SendDeleteDeprecatedVpnConfigNotification(tgbotWebhookServer,user.Username() , expiredOrder.Id)
 			return nil
 		}
-		fmt.Println( -time.Since(vpnConfig.GetTime("end_date")).Hours() / 24)
-		webhooks.SendExpiryVpnConfigNotification(tgbotWebhookServer,user.Username() , expiredOrder.Id, -time.Since(vpnConfig.GetTime("end_date")).Hours() / 24)
+		webhooks.SendExpiryVpnConfigNotification(tgbotWebhookServer,user.Username() , expiredOrder.Id, time.Until(vpnConfig.GetDateTime("end_date").Time()).Hours(), vpnConfig.GetInt("remain_data_mb"))
 		
 	}
 	return nil

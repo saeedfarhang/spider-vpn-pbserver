@@ -1,6 +1,7 @@
 package webhooks
 
 import (
+	"fmt"
 	"net/http"
 	"strconv"
 )
@@ -14,9 +15,10 @@ func SendVpnConfig (tgbotWebhookServer string,tgUserId string,orderId string)(an
 	return nil, nil
 }
 
-func SendExpiryVpnConfigNotification (tgbotWebhookServer string,tgUserId string,orderId string, daysToExpire float64)(any, error){
-	_, err := http.Get(tgbotWebhookServer+"/expiry-vpn-config?user_id="+tgUserId+"&order_id="+orderId+"&days_to_expire="+strconv.FormatFloat(daysToExpire, 'f', 0, 64))
+func SendExpiryVpnConfigNotification (tgbotWebhookServer string,tgUserId string,orderId string, hoursToExpire float64, remainInMb int)(any, error){
+	_, err := http.Get(tgbotWebhookServer+"/expiry-vpn-config?user_id="+tgUserId+"&order_id="+orderId+"&hours_to_expire="+strconv.FormatFloat(hoursToExpire, 'f', 0, 32)+"&remain_in_mb="+fmt.Sprint(remainInMb))
 	if err != nil{
+		fmt.Println(err)
 		return nil, err
 	}
 	return nil, nil
