@@ -40,16 +40,15 @@ func main() {
     // serves static files from the provided public dir (if exists)
     app.OnBeforeServe().Add(func(e *core.ServeEvent) error {
         e.Router.GET("/*", apis.StaticDirectoryHandler(os.DirFS("./pb_public"), false))
-
-		log.Println(int(time.Since(time.Now().Add(-time.Hour * 10)).Hours()))
 		scheduler := cron.New()
-        scheduler.AddFunc("*/1 * * * *", func() {
+
+        scheduler.AddFunc("20 * * * *", func() {
+			queries.HandleConfigsExpiry(app)
 			log.Printf("add function to cronjob. each 1min")
 			err:=queries.SyncVpnConfigsRemainUsage(app)
 			if err != nil{
 				log.Fatalf("Failed: %v", err)
 			}
-			queries.HandleConfigsExpiry(app)
 		})
 
         scheduler.Start()
