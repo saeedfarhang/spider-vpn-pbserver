@@ -6,6 +6,6 @@ import "time"
 func AddDays(x int, date time.Time) time.Time {
 	duration := time.Duration(x) * 24 * time.Hour
 	newDate := date.Add(duration)
-	
+
 	return newDate
 }

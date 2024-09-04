@@ -1,0 +1,22 @@
+version: "3.8"
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    volumes:
+      - .:/app
+      - /app/tmp
+      - ./pb_data:/pb_data
+    env_file:
+      - .env
+    networks:
+      - spider-vpn-network
+    ports:
+      - ${APP_PORT}:${APP_PORT}
+    command: bash -c "go install github.com/air-verse/air@latest && air -c .air.toml"
+
+networks:
+  spider-vpn-network:
+    external: true

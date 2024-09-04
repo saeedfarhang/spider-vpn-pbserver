@@ -1,0 +1,15 @@
+# .air.toml
+root = "."
+tmp_dir = "tmp"
+
+[build]
+cmd = "go run main.go serve --http="
+bin = "tmp/main"
+full_bin = "false"
+
+[watch]
+# Watch all .go files
+includes = ["**/*.go"]
+
+[log]
+level = "info"
