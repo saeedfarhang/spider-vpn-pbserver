@@ -20,6 +20,7 @@ func GetActiveServers (app *pocketbase.PocketBase, serverIds []string)(servers [
 	var query *dbx.SelectQuery
 	// Create a raw query with placeholders for each ID
 	if (len(serverIds) != 0){
+		existsCapacityExpr := dbx.Not(dbx.HashExp{"capacity":0,})
 		placeholders := make([]string, len(serverIds))
 		params := dbx.Params{}
 		for i, id := range serverIds {
@@ -29,6 +30,7 @@ func GetActiveServers (app *pocketbase.PocketBase, serverIds []string)(servers [
 		idsExpr = dbx.NewExp(fmt.Sprintf("id IN (%s)", strings.Join(placeholders, ", ")), params)
 		query = app.Dao().RecordQuery("servers").
 		AndWhere(idsExpr).
+		AndWhere(existsCapacityExpr).
 		AndWhere(enableStatusExpr).
 		OrderBy("capacity DESC").
 		Limit(1)
@@ -44,15 +46,13 @@ func GetActiveServers (app *pocketbase.PocketBase, serverIds []string)(servers [
 	}
 
 	if len(servers) == 0 {
-		log.Print("Error: No servers found")
-		return nil, fmt.Errorf("no servers found")
+		return nil, fmt.Errorf("error: no servers found")
 	}
 
 	// Handle the result
 	server := servers[0]
 	if server == nil {
-		log.Print("Error: Server is nil")
-		return nil, fmt.Errorf("server not found")
+		return nil, fmt.Errorf("error: server is nil")
 	}
 	return servers, nil
 }
@@ -68,7 +68,8 @@ func SyncVpnConfigsRemainUsage(app *pocketbase.PocketBase)(err error){
 		apiUrl:= server.GetString("management_api_url")
 		usages , err := outlineApi.GetAccessKeysUsages(apiUrl)
 		if err != nil{
-			log.Fatalf("Failed to get usages: %v", err)
+			log.Printf("Failed to get usages: %v", err)
+			continue
 		}
 		vpnConfigs := []*models.Record{}
 		err = app.Dao().RecordQuery("vpn_configs").

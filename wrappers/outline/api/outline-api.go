@@ -84,7 +84,7 @@ func OutlineApiCall(method string, url string, requestBody interface{}, result a
 	fmt.Println("Response body JSON:", string(respBody))
 
 	// Unmarshal the response body if a result is expected
-	if result != nil {
+	if len(string(respBody)) != 0 {
 		err = json.Unmarshal(respBody, &result)
 		if err != nil {
 			return nil, fmt.Errorf("error unmarshaling response body: %w", err)
