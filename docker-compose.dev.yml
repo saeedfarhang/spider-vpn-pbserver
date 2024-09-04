@@ -6,12 +6,17 @@ services:
       context: .
       dockerfile: Dockerfile
     volumes:
-      - .:/usr/src/app
-      - ./pb_data:/usr/src/app/pb_data
+      - .:/app
+      - /app/tmp
+      - ./pb_data:/pb_data
     env_file:
       - .env
-    network_mode: host
+    networks:
+      - spider-vpn-network
     ports:
-      - "8090:8090"
-    command: "/docker-gs-ping serve --dev"
-    restart: "always"
+      - ${APP_PORT}:${APP_PORT}
+    command: bash -c "go install github.com/air-verse/air@latest && air -c .air.toml"
+
+networks:
+  spider-vpn-network:
+    external: true
