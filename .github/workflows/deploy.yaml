@@ -10,39 +10,41 @@ on:
 jobs:
   deploy:
     runs-on: ubuntu-latest
-
+    env:
+      PROJECT_NAME: spider-vpn-dasboard
+      DIR_PATH: /opt/src/spider/$PROJECT_NAME
     steps:
       - name: Checkout code
         uses: actions/checkout@v2
 
       - name: Check env
-        run: echo "address is ${{ vars.REMOTE_SERVER_USERNAME }}@${{ vars.REMOTE_SERVER_ADDRESS }}"
+        run: echo "address is ${{ vars.REMOTE_SERVER_USERNAME }}@${{ vars.REMOTE_SERVER_ADDRESS }}\n in ${{env.DIR_PATH}}"
 
       - name: Build Docker image
-        run: docker build -t spider-vpn-dashboard:latest .
+        run: docker build -t {{ vars.PROJECT_NAME }}:latest .
 
       - name: Save Docker image as tar file
-        run: docker save -o spider-vpn-dashboard.tar spider-vpn-dashboard:latest
+        run: docker save -o {{ vars.PROJECT_NAME }}.tar {{ vars.PROJECT_NAME }}:latest
 
       - name: Transfer Docker image to server
         run: |
           mkdir -p ~/.ssh
           echo "${{ secrets.PRIVATE_KEY }}" > ~/.ssh/id_rsa
           chmod 600 ~/.ssh/id_rsa
-          scp -o StrictHostKeyChecking=no spider-vpn-dashboard.tar ${{vars.REMOTE_SERVER_USERNAME}}@${{vars.REMOTE_SERVER_ADDRESS}}:${{ secrets.REMOTE_SERVER_PATH }}
+          scp -o StrictHostKeyChecking=no {{ vars.PROJECT_NAME }}.tar ${{vars.REMOTE_SERVER_USERNAME}}@${{vars.REMOTE_SERVER_ADDRESS}}:${{env.DIR_PATH}}
 
       - name: Load Docker image on remote server
         run: |
           ssh -o StrictHostKeyChecking=no ${{ vars.REMOTE_SERVER_USERNAME }}@${{ vars.REMOTE_SERVER_ADDRESS }} << 'ENDSSH'
-          docker network create spider-vpn-network && docker load -i ${{ secrets.REMOTE_SERVER_PATH }}/spider-vpn-dashboard.tar
+          docker network create spider-vpn-network && docker load -i ${{env.DIR_PATH}}/{{ vars.PROJECT_NAME }}.tar
           ENDSSH
 
       - name: Transfer Docker Compose file to remote server
         run: |
-          scp -o StrictHostKeyChecking=no .github/docker-compose.yml ${{ vars.REMOTE_SERVER_USERNAME }}@${{ vars.REMOTE_SERVER_ADDRESS }}:${{ secrets.REMOTE_SERVER_PATH }}
+          scp -o StrictHostKeyChecking=no .github/docker-compose.yml ${{ vars.REMOTE_SERVER_USERNAME }}@${{ vars.REMOTE_SERVER_ADDRESS }}:${{env.DIR_PATH}}
 
       - name: Deploy Docker containers using Docker Compose on remote server
         run: |
           ssh -o StrictHostKeyChecking=no ${{ vars.REMOTE_SERVER_USERNAME }}@${{ vars.REMOTE_SERVER_ADDRESS }} << 'ENDSSH'
-          docker compose -f ${{ secrets.REMOTE_SERVER_PATH }}/docker-compose.yml up -d
+          docker compose -f ${{env.DIR_PATH}}/docker-compose.yml up -d
           ENDSSH
