@@ -7,13 +7,13 @@ on:
 
 jobs:
   invite:
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     steps:
       - name: Check env
         run: echo $REMOTE_SERVER_USERNAME@$REMOTE_SERVER_ADDRESS
 
   deploy:
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
 
     steps:
       - name: Checkout code
