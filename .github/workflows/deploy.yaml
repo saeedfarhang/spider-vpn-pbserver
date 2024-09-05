@@ -6,6 +6,12 @@ on:
       - "*"
 
 jobs:
+  invite:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check env
+        run: echo ${{ secrets.REMOTE_SERVER_USERNAME }}@${{ secrets.REMOTE_SERVER_ADDRESS }}
+
   deploy:
     runs-on: ubuntu-latest
 
