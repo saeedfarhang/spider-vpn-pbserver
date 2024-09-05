@@ -18,25 +18,25 @@ jobs:
         uses: actions/checkout@v2
 
       - name: Check env
-        run: echo "address is ${{ vars.REMOTE_SERVER_USERNAME }}@${{ vars.REMOTE_SERVER_ADDRESS }}\n in ${{env.DIR_PATH}}"
+        run: echo "address is ${{ vars.REMOTE_SERVER_USERNAME }}@${{ vars.REMOTE_SERVER_ADDRESS }} in ${{env.DIR_PATH}}"
 
       - name: Build Docker image
-        run: docker build -t {{ vars.PROJECT_NAME }}:latest .
+        run: docker build -t ${{ env.PROJECT_NAME }}:latest .
 
       - name: Save Docker image as tar file
-        run: docker save -o {{ vars.PROJECT_NAME }}.tar {{ vars.PROJECT_NAME }}:latest
+        run: docker save -o ${{ env.PROJECT_NAME }}.tar ${{ env.PROJECT_NAME }}:latest
 
       - name: Transfer Docker image to server
         run: |
           mkdir -p ~/.ssh
           echo "${{ secrets.PRIVATE_KEY }}" > ~/.ssh/id_rsa
           chmod 600 ~/.ssh/id_rsa
-          scp -o StrictHostKeyChecking=no {{ vars.PROJECT_NAME }}.tar ${{vars.REMOTE_SERVER_USERNAME}}@${{vars.REMOTE_SERVER_ADDRESS}}:${{env.DIR_PATH}}
+          scp -o StrictHostKeyChecking=no ${{ env.PROJECT_NAME }}.tar ${{vars.REMOTE_SERVER_USERNAME}}@${{vars.REMOTE_SERVER_ADDRESS}}:${{env.DIR_PATH}}
 
       - name: Load Docker image on remote server
         run: |
           ssh -o StrictHostKeyChecking=no ${{ vars.REMOTE_SERVER_USERNAME }}@${{ vars.REMOTE_SERVER_ADDRESS }} << 'ENDSSH'
-          docker network create spider-vpn-network && docker load -i ${{env.DIR_PATH}}/{{ vars.PROJECT_NAME }}.tar
+          docker network create spider-vpn-network && docker load -i ${{env.DIR_PATH}}/${{ env.PROJECT_NAME }}.tar
           ENDSSH
 
       - name: Transfer Docker Compose file to remote server
