@@ -19,7 +19,7 @@ jobs:
       - name: Save Docker image as tar file
         run: docker save -o spider-vpn-dashboard.tar spider-vpn-dashboard:latest
 
-      - name: Transfer Docker image to remote server
+      - name: Transfer Docker image to server
         run: |
           mkdir -p ~/.ssh
           echo "${{ secrets.PRIVATE_KEY }}" > ~/.ssh/id_rsa
