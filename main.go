@@ -325,20 +325,27 @@ func main() {
 				if err != nil {
 					log.Println(err)
 				}
-				plan.Set("capacity", plan.GetInt("capacity")+1)
-
-				println("plan", plan, plan)
-
-				if err := app.Dao().SaveRecord(plan); err != nil {
+				// plan.Set("capacity", plan.GetInt("capacity")+1)
+				_, err = app.Dao().DB().NewQuery(`UPDATE plans SET capacity={:planNewCapacity} WHERE id={:planId}`).Bind(dbx.Params{"planNewCapacity": plan.GetInt("capacity") + 1, "planId": plan.GetId()}).Execute()
+				if err != nil {
 					return fmt.Errorf("failed to update plan capacity: %w", err)
 				}
+				println("plan", plan, plan)
 
-				println("update server capacity", server.GetInt("capacity"), server.GetInt("capacity")+1)
+				// if err := app.Dao().SaveRecord(plan); err != nil {
+				// 	return fmt.Errorf("failed to update plan capacity: %w", err)
+				// }
 
-				server.Set("capacity", server.GetInt("capacity")+1)
-				if err := app.Dao().SaveRecord(server); err != nil {
+				_, err = app.Dao().DB().NewQuery(`UPDATE servers SET capacity={:planNewCapacity} WHERE id={:serverId}`).Bind(dbx.Params{"planNewCapacity": server.GetInt("capacity") + 1, "serverId": server.GetId()}).Execute()
+				if err != nil {
 					return fmt.Errorf("failed to update server capacity: %w", err)
 				}
+				println("update server capacity", server.GetInt("capacity"), server.GetInt("capacity")+1)
+
+				// server.Set("capacity", server.GetInt("capacity")+1)
+				// if err := app.Dao().SaveRecord(server); err != nil {
+				// 	return fmt.Errorf("failed to update server capacity: %w", err)
+				// }
 
 			}
 		}
