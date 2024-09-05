@@ -12,9 +12,6 @@ env:
   TEST: $REMOTE_SERVER_USERNAME
 
 jobs:
-  invite:
-    runs-on: ubuntu-latest
-
   deploy:
     runs-on: ubuntu-latest
 
