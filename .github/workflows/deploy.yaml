@@ -12,7 +12,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Check env
-        run: echo ${{env.REMOTE_SERVER_USERNAME}}@${{env.REMOTE_SERVER_ADDRESS}}
+        run: echo "address is ${{env.REMOTE_SERVER_USERNAME}}@${{env.REMOTE_SERVER_ADDRESS}}"
 
   deploy:
     runs-on: ubuntu-latest
