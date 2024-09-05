@@ -5,14 +5,16 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      target: app
     volumes:
       - .:/app
       - /app/tmp
       - ./pb_data:/pb_data
     env_file:
       - .env
-    networks:
-      - spider-vpn-network
+    # networks:
+    #   - spider-vpn-network
+    network_mode: host
     ports:
       - ${APP_PORT}:${APP_PORT}
     command: bash -c "go install github.com/air-verse/air@latest && air -c .air.toml"

@@ -5,6 +5,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      target: builder
     volumes:
       - ./pb_data:/pb_data
     env_file:
