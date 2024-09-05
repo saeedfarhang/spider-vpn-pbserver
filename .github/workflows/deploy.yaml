@@ -9,7 +9,7 @@ on:
 
 env:
   DAY_OF_WEEK: Monday
-  TEST: HEy
+  TEST: $REMOTE_SERVER_USERNAME
 
 jobs:
   invite:
