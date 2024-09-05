@@ -36,7 +36,7 @@ jobs:
       - name: Load Docker image on remote server
         run: |
           ssh -o StrictHostKeyChecking=no ${{ vars.REMOTE_SERVER_USERNAME }}@${{ vars.REMOTE_SERVER_ADDRESS }} << 'ENDSSH'
-          docker network create spider-vpn-network && docker load -i ${{env.DIR_PATH}}/${{ env.PROJECT_NAME }}.tar
+          docker load -i ${{env.DIR_PATH}}/${{ env.PROJECT_NAME }}.tar
           ENDSSH
 
       - name: Transfer Docker Compose file to remote server
