@@ -34,12 +34,12 @@ jobs:
       - name: Load Docker image on remote server
         run: |
           ssh -o StrictHostKeyChecking=no ${{ vars.REMOTE_SERVER_USERNAME }}@${{ vars.REMOTE_SERVER_ADDRESS }} << 'ENDSSH'
-          docker load -i ${{ secrets.REMOTE_SERVER_PATH }}/spider-vpn-dashboard.tar
+          docker network create spider-vpn-network && docker load -i ${{ secrets.REMOTE_SERVER_PATH }}/spider-vpn-dashboard.tar
           ENDSSH
 
       - name: Transfer Docker Compose file to remote server
         run: |
-          scp -o StrictHostKeyChecking=no docker-compose.yml ${{ vars.REMOTE_SERVER_USERNAME }}@${{ vars.REMOTE_SERVER_ADDRESS }}:${{ secrets.REMOTE_SERVER_PATH }}
+          scp -o StrictHostKeyChecking=no .github/docker-compose.yml ${{ vars.REMOTE_SERVER_USERNAME }}@${{ vars.REMOTE_SERVER_ADDRESS }}:${{ secrets.REMOTE_SERVER_PATH }}
 
       - name: Deploy Docker containers using Docker Compose on remote server
         run: |
