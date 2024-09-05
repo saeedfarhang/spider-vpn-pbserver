@@ -17,12 +17,13 @@ jobs:
 
   deploy:
     runs-on: ubuntu-latest
-    steps:
-      - name: Check env
-      run: echo "${{env.TEST}} address is ${{ vars.REMOTE_SERVER_USERNAME }}@${{ vars.REMOTE_SERVER_ADDRESS }}"
 
+    steps:
       - name: Checkout code
         uses: actions/checkout@v2
+
+      - name: Check env
+        run: echo "address is ${{ vars.REMOTE_SERVER_USERNAME }}@${{ vars.REMOTE_SERVER_ADDRESS }}"
 
       - name: Build Docker image
         run: docker build -t spider-vpn-dashboard:latest .
@@ -35,7 +36,7 @@ jobs:
           mkdir -p ~/.ssh
           echo "${{ secrets.PRIVATE_KEY }}" > ~/.ssh/id_rsa
           chmod 600 ~/.ssh/id_rsa
-          scp -o StrictHostKeyChecking=no spider-vpn-dashboard.tar ${{env.REMOTE_SERVER_USERNAME}}@${{env.REMOTE_SERVER_ADDRESS}}:${{ secrets.REMOTE_SERVER_PATH }}
+          scp -o StrictHostKeyChecking=no spider-vpn-dashboard.tar ${{var.REMOTE_SERVER_USERNAME}}@${{var.REMOTE_SERVER_ADDRESS}}:${{ secrets.REMOTE_SERVER_PATH }}
 
       - name: Load Docker image on remote server
         run: |
