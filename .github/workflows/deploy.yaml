@@ -9,13 +9,13 @@ on:
 
 jobs:
   invite:
-    runs-on: self-hosted
+    runs-on: ubuntu-latest
     steps:
       - name: Check env
         run: echo $REMOTE_SERVER_USERNAME@$REMOTE_SERVER_ADDRESS
 
   deploy:
-    runs-on: self-hosted
+    runs-on: ubuntu-latest
 
     steps:
       - name: Checkout code
