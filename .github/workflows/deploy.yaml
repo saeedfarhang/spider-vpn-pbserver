@@ -12,7 +12,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Check env
-        run: echo $REMOTE_SERVER_USERNAME@$REMOTE_SERVER_ADDRESS
+        run: echo ${{env.REMOTE_SERVER_USERNAME}}@${{env.REMOTE_SERVER_ADDRESS}}
 
   deploy:
     runs-on: ubuntu-latest
@@ -32,7 +32,7 @@ jobs:
           mkdir -p ~/.ssh
           echo "${{ secrets.PRIVATE_KEY }}" > ~/.ssh/id_rsa
           chmod 600 ~/.ssh/id_rsa
-          scp -o StrictHostKeyChecking=no spider-vpn-dashboard.tar $REMOTE_SERVER_USERNAME@$REMOTE_SERVER_ADDRESS:${{ secrets.REMOTE_SERVER_PATH }}
+          scp -o StrictHostKeyChecking=no spider-vpn-dashboard.tar ${{env.REMOTE_SERVER_USERNAME}}@${{env.REMOTE_SERVER_ADDRESS}}:${{ secrets.REMOTE_SERVER_PATH }}
 
       - name: Load Docker image on remote server
         run: |
