@@ -301,9 +301,6 @@ func main() {
 		if err != nil {
 			return fmt.Errorf("model casting error")
 		}
-		if err != nil {
-			return fmt.Errorf("model casting error")
-		}
 
 		if vpnConfig.GetString("type") == "OUTLINE" {
 			connectionDataStr := vpnConfig.GetString("connection_data")
@@ -314,7 +311,6 @@ func main() {
 				return fmt.Errorf("failed to unmarshal connection_data: %w", err)
 			}
 			managementApiUrl := server.GetString("management_api_url")
-			fmt.Println(connectionDataStruct.ID, managementApiUrl)
 			if connectionDataStruct.ID != "" && managementApiUrl != "" {
 				err = outlineApi.DeleteAccessKey(managementApiUrl, connectionDataStruct.ID)
 				if err != nil {
