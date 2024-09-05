@@ -14,15 +14,13 @@ env:
 jobs:
   invite:
     runs-on: ubuntu-latest
-    environment: "production"
-    steps:
-      - name: Check env
-        run: echo "${{env.TEST}} address is ${{ vars.REMOTE_SERVER_USERNAME }}@${{ vars.REMOTE_SERVER_ADDRESS }}"
 
   deploy:
     runs-on: ubuntu-latest
-    environment: "production"
     steps:
+      - name: Check env
+      run: echo "${{env.TEST}} address is ${{ vars.REMOTE_SERVER_USERNAME }}@${{ vars.REMOTE_SERVER_ADDRESS }}"
+
       - name: Checkout code
         uses: actions/checkout@v2
 
