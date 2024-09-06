@@ -46,5 +46,5 @@ jobs:
       - name: Deploy Docker containers using Docker Compose on remote server
         run: |
           ssh -o StrictHostKeyChecking=no ${{ vars.REMOTE_SERVER_USERNAME }}@${{ vars.REMOTE_SERVER_ADDRESS }} << 'ENDSSH'
-          docker compose down && docker compose -f ${{env.DIR_PATH}}/docker-compose.yml up -d
+          docker compose -f ${{env.DIR_PATH}}/docker-compose.yml down && docker compose -f ${{env.DIR_PATH}}/docker-compose.yml up -d
           ENDSSH
