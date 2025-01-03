@@ -121,7 +121,6 @@ func SyncVpnConfigsRemainUsage(app *pocketbase.PocketBase) (err error) {
 		if err != nil {
 			log.Fatalf("Failed to find vpn configs: %v", err)
 		}
-		log.Println("vpn configs to update remain_usage: ", vpnConfigs)
 		for _, vpnConfig := range vpnConfigs {
 			connectionDataStr := vpnConfig.GetString("connection_data")
 

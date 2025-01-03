@@ -65,7 +65,7 @@ func main() {
 
 		scheduler := cron.New()
 
-		scheduler.AddFunc("*/1 * * * *", func() {
+		scheduler.AddFunc("30 * * * *", func() {
 			err := queries.SyncVpnConfigsRemainUsage(app)
 			if err != nil {
 				fmt.Printf("Failed: %v", err)
