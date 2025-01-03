@@ -45,7 +45,7 @@ jobs:
 
       - name: Deploy Docker containers using Docker Compose on remote server
         run: |
-          ssh -o StrictHostKeyChecking=no ${{ secrets.REMOTE_SERVER_USERNAME }}@${{ secrets.REMOTE_SERVER_ADDRESS }} << 'ENDSSH'
+          ssh -o StrictHostKeyChecking=no ${{ vars.REMOTE_SERVER_USERNAME }}@${{ vars.REMOTE_SERVER_ADDRESS }} << 'ENDSSH'
           docker network create spider-vpn-network || true
-          docker compose -f ${{ secrets.REMOTE_SERVER_PATH }}/docker-compose.yaml up -d
+          docker compose -f ${{env.DIR_PATH}}/docker-compose.yml down && docker compose -f ${{env.DIR_PATH}}/docker-compose.yml up -d
           ENDSSH
