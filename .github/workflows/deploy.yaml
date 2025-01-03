@@ -11,8 +11,8 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     env:
-      PROJECT_NAME: spider-vpn-dasboard
-      DIR_PATH: /opt/src/spider/spider-vpn-dasboard
+      PROJECT_NAME: spider-vpn-dashboard
+      DIR_PATH: /opt/src/spider/spider-vpn-dashboard
     steps:
       - name: Checkout code
         uses: actions/checkout@v2

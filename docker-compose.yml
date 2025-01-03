@@ -1,5 +1,5 @@
 services:
-  spider-vpn-dasboard:
+  spider-vpn-dashboard:
     build:
       context: .
       dockerfile: Dockerfile
