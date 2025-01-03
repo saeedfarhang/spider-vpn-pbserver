@@ -1,7 +1,5 @@
-version: "3.8"
-
 services:
-  spider-panel:
+  spider-vpn-dasboard:
     build:
       context: .
       dockerfile: Dockerfile
