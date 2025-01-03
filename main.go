@@ -74,6 +74,22 @@ func main() {
 			queries.HandleConfigsExpiry(app)
 			log.Printf("add function to cronjob. each 1min")
 		})
+		scheduler.AddFunc("*/1 * * * *", func() {
+			serverStatuses, err := queries.CheckActiveServersHealth(app)
+			if err != nil {
+				fmt.Printf("Failed: %v", err)
+				return
+			}
+			tgbotWebhookServer := env.Get("TELEGRAM_WEBHOOK_URL")
+			tgAdminUsers, err := app.Dao().FindRecordsByExpr("users", dbx.HashExp{"is_admin": true})
+			if err != nil {
+				fmt.Printf("Failed: %v", err)
+				return
+			}
+			webhooks.SendServersHealthToAdmins(tgbotWebhookServer, serverStatuses, tgAdminUsers)
+
+			log.Printf("add function to cronjob. each 1min, %v", serverStatuses)
+		})
 
 		scheduler.Start()
 		return nil
@@ -178,7 +194,6 @@ func main() {
 			log.Fatal(err)
 			return nil
 		}
-		log.Println(tgAdminUsers, tgbotWebhookServer, order_approval.Id)
 		webhooks.SendNewOrderApprovalToAdmins(tgbotWebhookServer, order_approval.Id, tgAdminUsers)
 		return nil
 	})
@@ -211,7 +226,7 @@ func main() {
 			return fmt.Errorf("no servers associated with the plan")
 		}
 
-		servers, err := queries.GetActiveServers(app, serverIds)
+		servers, err := queries.GetActiveServers(app, serverIds, true, 1)
 		if err != nil {
 			return err
 		}

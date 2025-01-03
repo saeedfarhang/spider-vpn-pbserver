@@ -13,7 +13,9 @@ import (
 )
 
 func HandleConfigsExpiry(app *pocketbase.PocketBase) (err error) {
+	nearExpiryOrders := []*models.Record{}
 	expiredOrders := []*models.Record{}
+
 	// `hoursBeforeEndDate` value use to get vpn configs that end_date field is bigger than now - hoursBeforeEndDate.
 	hoursBeforeEndDate := 2
 	// `remainDataMb` value use to get vpn configs that remain_data_mb field is smaller than remainDataMb.
@@ -23,14 +25,34 @@ func HandleConfigsExpiry(app *pocketbase.PocketBase) (err error) {
 		AndWhere(dbx.NewExp("vpn_configs.end_date > {:nowDate} AND vpn_configs.end_date < {:startNoticeDuration}",
 			dbx.Params{"startNoticeDuration": time.Now().UTC().Add(time.Hour * time.Duration(hoursBeforeEndDate)), "nowDate": time.Now().UTC()})). // condition for current time
 		OrWhere(dbx.NewExp("vpn_configs.remain_data_mb < {:remainDataMb}", dbx.Params{"remainDataMb": remainDataMb})).
+		All(&nearExpiryOrders)
+	if err != nil {
+		log.Fatalf("Failed to execute query: %v", err)
+	}
+	err = app.Dao().RecordQuery("orders").
+		InnerJoin("vpn_configs", dbx.NewExp("orders.vpn_config = vpn_configs.id")).
+		AndWhere(dbx.NewExp("vpn_configs.end_date < {:nowDate}",
+			dbx.Params{"startNoticeDuration": time.Now().UTC().Add(time.Hour * time.Duration(hoursBeforeEndDate)), "nowDate": time.Now().UTC()})). // condition for current time
+		OrWhere(dbx.NewExp("vpn_configs.remain_data_mb < {:expiredConfigMb}", dbx.Params{"expiredConfigMb": 1})).
 		All(&expiredOrders)
-	fmt.Println("expiredOrders", expiredOrders)
 	if err != nil {
 		log.Fatalf("Failed to execute query: %v", err)
 	}
 	tgbotWebhookServer := env.Get("TELEGRAM_WEBHOOK_URL")
-	fmt.Println(tgbotWebhookServer)
 
+	for _, nearExpiryOrder := range nearExpiryOrders {
+		vpnConfig, err := app.Dao().FindRecordById("vpn_configs", nearExpiryOrder.GetString("vpn_config"))
+		if err != nil {
+			return fmt.Errorf("error: %v", err)
+		}
+		user, err := app.Dao().FindRecordById("users", nearExpiryOrder.GetString("user"))
+		if err != nil {
+			return fmt.Errorf("error: %v", err)
+		}
+		webhooks.SendExpiryVpnConfigNotification(tgbotWebhookServer, user.Username(), nearExpiryOrder.Id, time.Until(vpnConfig.GetDateTime("end_date").Time()).Hours(), vpnConfig.GetInt("remain_data_mb"))
+	}
+	fmt.Println("nearExpiryOrders: ", nearExpiryOrders)
+	fmt.Println("expiredOrders: ", expiredOrders)
 	for _, expiredOrder := range expiredOrders {
 		vpnConfig, err := app.Dao().FindRecordById("vpn_configs", expiredOrder.GetString("vpn_config"))
 		if err != nil {
@@ -40,10 +62,7 @@ func HandleConfigsExpiry(app *pocketbase.PocketBase) (err error) {
 		if err != nil {
 			return fmt.Errorf("error: %v", err)
 		}
-		if err != nil {
-			return fmt.Errorf("error: %v", err)
-		}
-		if time.Since(vpnConfig.GetTime("end_date")).Seconds() < 0 || vpnConfig.GetInt("remain_data_mb") == 0 {
+		if time.Since(vpnConfig.GetTime("end_date")).Seconds() > 0 || vpnConfig.GetInt("remain_data_mb") == 0 {
 			if err := app.Dao().DeleteRecord(expiredOrder); err != nil {
 				return fmt.Errorf("error: %v", err)
 			} else if err := app.Dao().DeleteRecord(vpnConfig); err != nil {
@@ -54,8 +73,6 @@ func HandleConfigsExpiry(app *pocketbase.PocketBase) (err error) {
 			webhooks.SendDeleteDeprecatedVpnConfigNotification(tgbotWebhookServer, user.Username(), expiredOrder.Id)
 			return nil
 		}
-		webhooks.SendExpiryVpnConfigNotification(tgbotWebhookServer, user.Username(), expiredOrder.Id, time.Until(vpnConfig.GetDateTime("end_date").Time()).Hours(), vpnConfig.GetInt("remain_data_mb"))
-
 	}
 	return nil
 

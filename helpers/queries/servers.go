@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"spider-vpn/constants"
 	outlineApi "spider-vpn/wrappers/outline/api"
 
 	"github.com/pocketbase/dbx"
@@ -14,13 +15,12 @@ import (
 	"github.com/pocketbase/pocketbase/models"
 )
 
-func GetActiveServers(app *pocketbase.PocketBase, serverIds []string) (servers []*models.Record, err error) {
+func GetActiveServers(app *pocketbase.PocketBase, serverIds []string, hasCapacity bool, limit int) (servers []*models.Record, err error) {
 	enableStatusExpr := dbx.HashExp{"enable": true}
 	var idsExpr dbx.Expression
 	var query *dbx.SelectQuery
 	// Create a raw query with placeholders for each ID
 	if len(serverIds) != 0 {
-		existsCapacityExpr := dbx.Not(dbx.HashExp{"capacity": 0})
 		placeholders := make([]string, len(serverIds))
 		params := dbx.Params{}
 		for i, id := range serverIds {
@@ -28,17 +28,26 @@ func GetActiveServers(app *pocketbase.PocketBase, serverIds []string) (servers [
 			params[fmt.Sprintf("id%d", i)] = id
 		}
 		idsExpr = dbx.NewExp(fmt.Sprintf("id IN (%s)", strings.Join(placeholders, ", ")), params)
-		query = app.Dao().RecordQuery("servers").
-			AndWhere(idsExpr).
-			AndWhere(existsCapacityExpr).
-			AndWhere(enableStatusExpr).
-			OrderBy("capacity DESC").
-			Limit(1)
+		if hasCapacity {
+			existsCapacityExpr := dbx.Not(dbx.HashExp{"capacity": 0})
+			query = app.Dao().RecordQuery("servers").
+				AndWhere(idsExpr).
+				AndWhere(existsCapacityExpr).
+				AndWhere(enableStatusExpr).
+				OrderBy("capacity DESC").
+				Limit(100)
+		} else {
+			query = app.Dao().RecordQuery("servers").
+				AndWhere(idsExpr).
+				AndWhere(enableStatusExpr).
+				OrderBy("capacity DESC").
+				Limit(100)
+		}
 	} else {
 		query = app.Dao().RecordQuery("servers").
 			AndWhere(enableStatusExpr).
 			OrderBy("capacity DESC").
-			Limit(1)
+			Limit(100)
 	}
 
 	if err := query.All(&servers); err != nil {
@@ -57,14 +66,45 @@ func GetActiveServers(app *pocketbase.PocketBase, serverIds []string) (servers [
 	return servers, nil
 }
 
+func CheckActiveServersHealth(app *pocketbase.PocketBase) (serverStatuses []constants.ServerHealthStatus, err error) {
+	servers, err := GetActiveServers(app, nil, false, 100)
+	if err != nil {
+		return nil, err
+	}
+	for _, server := range servers {
+		fmt.Printf("server: %v", server)
+		apiUrl := server.GetString("management_api_url")
+		healthy, err := outlineApi.CheckServerHealth(apiUrl)
+		if err != nil {
+			serverStatuses = append(serverStatuses, constants.ServerHealthStatus{
+				ServerId:     server.Id,
+				ErrorMessage: err.Error(),
+				IsHealthy:    false,
+			})
+		} else {
+			serverStatuses = append(serverStatuses, constants.ServerHealthStatus{
+				ServerId:     server.Id,
+				ErrorMessage: "",
+				IsHealthy:    healthy,
+			})
+		}
+	}
+	return serverStatuses, nil
+}
+
+// this function has a cronjob
 func SyncVpnConfigsRemainUsage(app *pocketbase.PocketBase) (err error) {
-	servers, err := GetActiveServers(app, nil)
+	servers, err := GetActiveServers(app, nil, false, 100)
 	if err != nil {
 		log.Fatalf("Failed to execute query: %v", err)
 	}
-
 	for _, server := range servers {
 		apiUrl := server.GetString("management_api_url")
+		// `usages` is a variable that stores the access key usages retrieved from the management API of a
+		// server. It is used to track the data usage of each access key associated with VPN configurations.
+		// The `GetAccessKeysUsages` function from the `outlineApi` package is called to fetch this
+		// information for a specific server. The data usage information is then used to update the remaining
+		// data allowance for each VPN configuration in the system.
 		usages, err := outlineApi.GetAccessKeysUsages(apiUrl)
 		if err != nil {
 			log.Printf("Failed to get usages: %v", err)
