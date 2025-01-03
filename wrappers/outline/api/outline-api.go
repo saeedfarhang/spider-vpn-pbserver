@@ -94,6 +94,15 @@ func OutlineApiCall(method string, url string, requestBody interface{}, result a
 	return result, nil
 }
 
+func CheckServerHealth(apiURL string) (bool, error) {
+	_, err := ListAccessKeys(apiURL)
+	if err != nil {
+		return false, err
+	}
+
+	return true, nil
+}
+
 func ListAccessKeys(apiURL string) ([]AccessKey, error) {
 	var result struct {
 		AccessKeys []AccessKey `json:"accessKeys"`
