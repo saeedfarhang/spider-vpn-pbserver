@@ -49,6 +49,7 @@ func SendVpnConfig(tgbotWebhookServer string, tgUserId string, orderId string) (
 }
 
 func SendExpiryVpnConfigNotification(tgbotWebhookServer string, tgUserId string, orderId string, hoursToExpire float64, remainInMb int) (any, error) {
+	fmt.Println(tgbotWebhookServer)
 	_, err := http.Get(tgbotWebhookServer + "/expiry-vpn-config?user_id=" + tgUserId + "&order_id=" + orderId + "&hours_to_expire=" + strconv.FormatFloat(hoursToExpire, 'f', 0, 32) + "&remain_in_mb=" + fmt.Sprint(remainInMb))
 	if err != nil {
 		fmt.Println(err)

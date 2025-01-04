@@ -40,6 +40,7 @@ func HandleConfigsExpiry(app *pocketbase.PocketBase) (err error) {
 	}
 	tgbotWebhookServer := env.Get("TELEGRAM_WEBHOOK_URL")
 
+	fmt.Println("nearExpiryOrders: ", nearExpiryOrders)
 	for _, nearExpiryOrder := range nearExpiryOrders {
 		vpnConfig, err := app.Dao().FindRecordById("vpn_configs", nearExpiryOrder.GetString("vpn_config"))
 		if err != nil {
@@ -51,7 +52,6 @@ func HandleConfigsExpiry(app *pocketbase.PocketBase) (err error) {
 		}
 		webhooks.SendExpiryVpnConfigNotification(tgbotWebhookServer, user.Username(), nearExpiryOrder.Id, time.Until(vpnConfig.GetDateTime("end_date").Time()).Hours(), vpnConfig.GetInt("remain_data_mb"))
 	}
-	fmt.Println("nearExpiryOrders: ", nearExpiryOrders)
 	fmt.Println("expiredOrders: ", expiredOrders)
 	for _, expiredOrder := range expiredOrders {
 		vpnConfig, err := app.Dao().FindRecordById("vpn_configs", expiredOrder.GetString("vpn_config"))
