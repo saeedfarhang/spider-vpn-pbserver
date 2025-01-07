@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/csv"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -62,7 +63,43 @@ func main() {
 
 			return c.HTML(http.StatusOK, html)
 		})
+		e.Router.GET("/ssconf/:conf_id", func(c echo.Context) error {
+			conf_id := c.PathParam("conf_id")
+			vpnConfig, err := app.Dao().FindRecordById("vpn_configs", conf_id)
+			if err != nil {
+				return err
+			}
+			connectionDataStr := vpnConfig.GetString("connection_data")
 
+			var connectionDataStruct outlineApi.AccessKey
+			err = json.Unmarshal([]byte(connectionDataStr), &connectionDataStruct)
+			if err != nil {
+				return err
+			}
+
+			// Log the AccessUrl for debugging
+			fmt.Printf("conf: %v\n", connectionDataStruct.AccessUrl)
+
+			// Prepare CSV data
+			csvData := [][]string{
+				{connectionDataStruct.AccessUrl},
+				// Add other fields if necessary
+			}
+
+			// Set headers for CSV download
+			c.Response().Header().Set(echo.HeaderContentDisposition, "attachment; filename=config.csv")
+			c.Response().Header().Set(echo.HeaderContentType, "text/csv")
+
+			// Write CSV content to the response
+			writer := csv.NewWriter(c.Response().Writer)
+			err = writer.WriteAll(csvData)
+			if err != nil {
+				return echo.NewHTTPError(http.StatusInternalServerError, "Failed to generate CSV")
+			}
+			writer.Flush()
+
+			return nil
+		})
 		scheduler := cron.New()
 
 		scheduler.AddFunc("30 * * * *", func() {
@@ -271,7 +308,9 @@ func main() {
 
 			startDate := time.Now()
 			endDate := helpers.AddDays(plan.GetInt("date_limit"), startDate)
-
+			// this salt added as prefixing solution to make the connection look like a protocol that is allowed in network
+			// more info: https://www.reddit.com/r/outlinevpn/wiki/index/prefixing/
+			accessKeyConfig.AccessUrl = accessKeyConfig.AccessUrl + "&" + "%13%03%03%3F"
 			jsonAccessKeyConfig, err := json.Marshal(accessKeyConfig)
 			if err != nil {
 				return nil
