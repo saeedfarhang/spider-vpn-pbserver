@@ -7,15 +7,18 @@ import (
 	"strings"
 	"time"
 
+	env "spider-vpn/config"
 	"spider-vpn/constants"
+	"spider-vpn/helpers"
 	outlineApi "spider-vpn/wrappers/outline/api"
+	tgbot "spider-vpn/wrappers/tg-bot"
 
 	"github.com/pocketbase/dbx"
 	"github.com/pocketbase/pocketbase"
-	"github.com/pocketbase/pocketbase/models"
+	"github.com/pocketbase/pocketbase/core"
 )
 
-func GetActiveServers(app *pocketbase.PocketBase, serverIds []string, hasCapacity bool, limit int) (servers []*models.Record, err error) {
+func GetActiveServers(app *pocketbase.PocketBase, serverIds []string, hasCapacity bool, limit int) (servers []*core.Record, err error) {
 	enableStatusExpr := dbx.HashExp{"enable": true}
 	var idsExpr dbx.Expression
 	var query *dbx.SelectQuery
@@ -30,21 +33,21 @@ func GetActiveServers(app *pocketbase.PocketBase, serverIds []string, hasCapacit
 		idsExpr = dbx.NewExp(fmt.Sprintf("id IN (%s)", strings.Join(placeholders, ", ")), params)
 		if hasCapacity {
 			existsCapacityExpr := dbx.Not(dbx.HashExp{"capacity": 0})
-			query = app.Dao().RecordQuery("servers").
+			query = app.RecordQuery("servers").
 				AndWhere(idsExpr).
 				AndWhere(existsCapacityExpr).
 				AndWhere(enableStatusExpr).
 				OrderBy("capacity DESC").
 				Limit(100)
 		} else {
-			query = app.Dao().RecordQuery("servers").
+			query = app.RecordQuery("servers").
 				AndWhere(idsExpr).
 				AndWhere(enableStatusExpr).
 				OrderBy("capacity DESC").
 				Limit(100)
 		}
 	} else {
-		query = app.Dao().RecordQuery("servers").
+		query = app.RecordQuery("servers").
 			AndWhere(enableStatusExpr).
 			OrderBy("capacity DESC").
 			Limit(100)
@@ -64,6 +67,87 @@ func GetActiveServers(app *pocketbase.PocketBase, serverIds []string, hasCapacit
 		return nil, fmt.Errorf("error: server is nil")
 	}
 	return servers, nil
+}
+
+func CreateOrUpdateVpnConfig(app *pocketbase.PocketBase, server *core.Record, plan *core.Record, order *core.Record, updatedVpnConfig *core.Record) (err error) {
+	if server == nil {
+		log.Print("Error: Server is nil")
+		return fmt.Errorf("server not found")
+	}
+
+	log.Print("server connection: ", server.GetString("hostname"))
+	if server.GetString("type") == "OUTLINE" {
+		apiUrl := server.GetString("management_api_url")
+		var vpnConfig *core.Record
+		var startDate time.Time
+		var endDate time.Time
+
+		if updatedVpnConfig == nil {
+			vpnConfigsCollection, err := app.FindCollectionByNameOrId("vpn_configs")
+			if err != nil {
+				return nil
+			}
+			vpnConfig = core.NewRecord(vpnConfigsCollection)
+
+			if err := app.Save(vpnConfig); err != nil {
+				return err
+			}
+			startDate = time.Now()
+			endDate = helpers.AddDays(plan.GetInt("date_limit"), startDate)
+		} else {
+			vpnConfig = updatedVpnConfig
+			startDate = vpnConfig.GetDateTime("start_date").Time()
+			endDate = vpnConfig.GetDateTime("end_date").Time()
+		}
+		accessKeyConfig, err := outlineApi.CreateAccessKey(apiUrl, vpnConfig.Id, int64(plan.GetInt("usage_limit_gb")))
+		if err != nil {
+			return nil
+		}
+		serverNewCapacity := server.GetInt("capacity") - 1
+		server.Set("capacity", serverNewCapacity)
+		if err := app.Save(server); err != nil {
+			return err
+		}
+		planNewCapacity := plan.GetInt("capacity") - 1
+		plan.Set("capacity", planNewCapacity)
+		if err := app.Save(plan); err != nil {
+			return err
+		}
+		// create new vpn config
+		// this salt added as prefixing solution to make the connection look like a protocol that is allowed in network
+		// more info: https://www.reddit.com/r/outlinevpn/wiki/index/prefixing/
+		accessKeyConfig.AccessUrl = accessKeyConfig.AccessUrl + "&" + "%13%03%03%3F"
+		jsonAccessKeyConfig, err := json.Marshal(accessKeyConfig)
+		if err != nil {
+			return nil
+		}
+		vpnConfig.Set("plan", plan.Id)
+		vpnConfig.Set("user", order.GetString("user"))
+		vpnConfig.Set("start_date", startDate)
+		vpnConfig.Set("end_date", endDate)
+		vpnConfig.Set("type", "OUTLINE")
+		vpnConfig.Set("usage_in_gb", plan.GetInt("usage_limit_gb"))
+		vpnConfig.Set("server", server.Id)
+		vpnConfig.Set("connection_data", string(jsonAccessKeyConfig))
+		if err := app.Save(vpnConfig); err != nil {
+			return err
+		}
+		order.Set("vpn_config", vpnConfig.Id)
+		if err := app.Save(order); err != nil {
+			return err
+		}
+		tgbotWebhookServer := env.Get("TELEGRAM_WEBHOOK_URL")
+
+		user, err := app.FindRecordById("users", order.GetString("user"))
+		if err != nil {
+			return err
+		}
+		_, err = tgbot.SendVpnConfig(tgbotWebhookServer, user.GetString("username"), order.Id)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func CheckActiveServersHealth(app *pocketbase.PocketBase) (serverStatuses []constants.ServerHealthStatus, err error) {
@@ -110,8 +194,8 @@ func SyncVpnConfigsRemainUsage(app *pocketbase.PocketBase) (err error) {
 			log.Printf("Failed to get usages: %v", err)
 			continue
 		}
-		vpnConfigs := []*models.Record{}
-		err = app.Dao().RecordQuery("vpn_configs").
+		vpnConfigs := []*core.Record{}
+		err = app.RecordQuery("vpn_configs").
 			AndWhere(dbx.Not(dbx.HashExp{"connection_data": ""})).
 			// last update passed interval
 			AndWhere(dbx.NewExp("updated < {:lastUpdate}", dbx.Params{"lastUpdate": time.Now().Add(time.Hour * 1)})).
@@ -136,7 +220,7 @@ func SyncVpnConfigsRemainUsage(app *pocketbase.PocketBase) (err error) {
 			} else {
 				vpnConfig.Set("remain_data_mb", vpnConfig.GetInt("usage_in_gb")*1000)
 			}
-			if err := app.Dao().Save(vpnConfig); err != nil {
+			if err := app.Save(vpnConfig); err != nil {
 				return err
 			}
 		}

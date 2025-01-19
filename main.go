@@ -8,19 +8,16 @@ import (
 	"net/http"
 	"os"
 	env "spider-vpn/config"
-	helpers "spider-vpn/helpers"
 	"spider-vpn/helpers/queries"
 	outlineApi "spider-vpn/wrappers/outline/api"
 	tgbot "spider-vpn/wrappers/tg-bot"
 	webhooks "spider-vpn/wrappers/tg-bot"
-	"time"
 
 	"github.com/labstack/echo/v5"
 	"github.com/pocketbase/dbx"
 	"github.com/pocketbase/pocketbase"
 	"github.com/pocketbase/pocketbase/apis"
 	"github.com/pocketbase/pocketbase/core"
-	"github.com/pocketbase/pocketbase/models"
 	"github.com/pocketbase/pocketbase/tools/template"
 	"github.com/robfig/cron/v3"
 )
@@ -41,13 +38,13 @@ func main() {
 	tgbotWebhookServer := env.Get("TELEGRAM_WEBHOOK_URL")
 	app := pocketbase.New()
 	// serves static files from the provided public dir (if exists)
-	app.OnBeforeServe().Add(func(e *core.ServeEvent) error {
-		e.Router.GET("/*", apis.StaticDirectoryHandler(os.DirFS("./pb_public"), false))
+	app.OnServe().BindFunc(func(e *core.ServeEvent) error {
+		e.Router.GET("/*", apis.Static(os.DirFS("./pb_public"), false))
 
 		registry := template.NewRegistry()
 
-		e.Router.GET("/pricing/:name", func(c echo.Context) error {
-			name := c.PathParam("name")
+		e.Router.GET("/pricing/{name}", func(e *core.RequestEvent) error {
+			name := e.Request.PathValue("name")
 
 			html, err := registry.LoadFiles(
 				"views/layout.html",
@@ -60,12 +57,11 @@ func main() {
 				// or redirect to a dedicated 404 HTML page
 				return apis.NewNotFoundError("", err)
 			}
-
-			return c.HTML(http.StatusOK, html)
+			return e.HTML(http.StatusOK, html)
 		})
-		e.Router.GET("/ssconf/:conf_id", func(c echo.Context) error {
-			conf_id := c.PathParam("conf_id")
-			vpnConfig, err := app.Dao().FindRecordById("vpn_configs", conf_id)
+		e.Router.GET("/ssconf/{conf_id}", func(e *core.RequestEvent) error {
+			conf_id := e.Request.PathValue("conf_id")
+			vpnConfig, err := app.FindRecordById("vpn_configs", conf_id)
 			if err != nil {
 				return err
 			}
@@ -87,18 +83,18 @@ func main() {
 			}
 
 			// Set headers for CSV download
-			c.Response().Header().Set(echo.HeaderContentDisposition, "attachment; filename=config.csv")
-			c.Response().Header().Set(echo.HeaderContentType, "text/csv")
+			e.Response.Header().Set(echo.HeaderContentDisposition, "attachment; filename=config.csv")
+			e.Response.Header().Set(echo.HeaderContentType, "text/csv")
 
 			// Write CSV content to the response
-			writer := csv.NewWriter(c.Response().Writer)
+			writer := csv.NewWriter(e.Response)
 			err = writer.WriteAll(csvData)
 			if err != nil {
 				return echo.NewHTTPError(http.StatusInternalServerError, "Failed to generate CSV")
 			}
 			writer.Flush()
 
-			return nil
+			return e.Next()
 		})
 		scheduler := cron.New()
 
@@ -118,7 +114,7 @@ func main() {
 				return
 			}
 			tgbotWebhookServer := env.Get("TELEGRAM_WEBHOOK_URL")
-			tgAdminUsers, err := app.Dao().FindRecordsByExpr("users", dbx.HashExp{"is_admin": true})
+			tgAdminUsers, err := app.FindRecordsByFilter("users", "is_admin=true", "id", 100, 0)
 			if err != nil {
 				fmt.Printf("Failed: %v", err)
 				return
@@ -129,25 +125,25 @@ func main() {
 		})
 
 		scheduler.Start()
-		return nil
+		return e.Next()
 	})
 
-	app.OnModelAfterCreate("orders").Add(func(e *core.ModelEvent) error {
-		orderId := e.Model.GetId()
-		order := e.Model.(*models.Record)
+	app.OnRecordAfterCreateSuccess("orders").BindFunc(func(e *core.RecordEvent) error {
+		orderId := e.Record.Id
+		order := e.Record
 		// Fetch the related plan's ID
 		planId := order.GetString("plan")
 		gatewayId := order.GetString("payment_gateway")
-		gateway, err := app.Dao().FindRecordById("payment_gateway", gatewayId)
+		gateway, err := app.FindRecordById("payment_gateway", gatewayId)
 		if err != nil {
 			return err
 		}
-		app.Dao().DB().NewQuery(`UPDATE orders SET status="INCOMPLETE" WHERE id={:id}`).
-			Bind(dbx.Params{"id": e.Model.GetId()}).Execute()
+		app.DB().NewQuery(`UPDATE orders SET status="INCOMPLETE" WHERE id={:id}`).
+			Bind(dbx.Params{"id": e.Record.Id}).Execute()
 
 		// Fetch related pricing records for the plan
-		pricings := []*models.Record{}
-		err = app.Dao().DB().NewQuery(`
+		pricings := []*core.Record{}
+		err = app.DB().NewQuery(`
 			SELECT pricing.* 
 			FROM pricing 
 			JOIN plans_pricing ON plans_pricing.pricing = pricing.id 
@@ -159,13 +155,13 @@ func main() {
 
 		// Create payments for each related pricing
 		for _, pricing := range pricings {
-			pricing, err := app.Dao().FindRecordById("pricing", pricing.Id)
+			pricing, err := app.FindRecordById("pricing", pricing.Id)
 			if err != nil {
 				return err
 			}
 
-			payments, err := app.Dao().FindCollectionByNameOrId("payments")
-			payment := models.NewRecord(payments)
+			payments, err := app.FindCollectionByNameOrId("payments")
+			payment := core.NewRecord(payments)
 			if err != nil {
 				return err
 			}
@@ -174,38 +170,37 @@ func main() {
 			payment.Set("order", orderId)
 			payment.Set("amount", pricing.GetFloat("price"))
 			payment.Set("currency", pricing.GetString("currency"))
-			if err := app.Dao().Save(payment); err != nil {
+			if err := app.Save(payment); err != nil {
 				return err
 			}
 
 			if gateway.GetString("type") == "FREE" {
-				user, err := app.Dao().FindRecordById("users", order.GetString("user"))
+				user, err := app.FindRecordById("users", order.GetString("user"))
 				if err != nil {
 					return err
 				}
 				if user.GetBool("first_test_done") {
-					_, err = tgbot.SendVpnConfig(tgbotWebhookServer, user.Username(), "Nil")
+					_, err = tgbot.SendVpnConfig(tgbotWebhookServer, user.GetString("username"), "Nil")
 					if err != nil {
 						return err
 					}
 					return fmt.Errorf("duplicate test account")
 				}
 				payment.Set("status", "PAID")
-				if err := app.Dao().Save(payment); err != nil {
+				if err := app.Save(payment); err != nil {
 					return err
 				}
 				order.Set("status", "COMPLETE")
-				if err := app.Dao().Save(order); err != nil {
+				if err := app.Save(order); err != nil {
 					return err
 				}
 				user.Set("first_test_done", true)
-				if err := app.Dao().Save(user); err != nil {
+				if err := app.Save(user); err != nil {
 					return err
 				}
-
 			} else {
 				payment.Set("status", "UNPAID")
-				if err := app.Dao().Save(payment); err != nil {
+				if err := app.Save(payment); err != nil {
 					return err
 				}
 			}
@@ -213,20 +208,20 @@ func main() {
 		return nil
 	})
 
-	app.OnModelAfterCreate("order_approval").Add(func(e *core.ModelEvent) error {
-		order_approval := e.Model.(*models.Record)
+	app.OnRecordAfterCreateSuccess("order_approval").BindFunc(func(e *core.RecordEvent) error {
+		order_approval := e.Record
 		orderId := order_approval.GetString("order")
-		order, err := app.Dao().FindRecordById("orders", orderId)
+		order, err := app.FindRecordById("orders", orderId)
 		if err != nil {
 			log.Fatal(err)
 			return nil
 		}
 		order.Set("status", "WAIT_FOR_APPROVE")
 		order.Set("order_approval", order_approval.Id)
-		if err := app.Dao().SaveRecord(order); err != nil {
+		if err := app.Save(order); err != nil {
 			return err
 		}
-		tgAdminUsers, err := app.Dao().FindRecordsByExpr("users", dbx.HashExp{"is_admin": true})
+		tgAdminUsers, err := app.FindRecordsByFilter("users", "is_admin=true", "id", 100, 0)
 		if err != nil {
 			log.Fatal(err)
 			return nil
@@ -235,19 +230,14 @@ func main() {
 		return nil
 	})
 
-	app.OnModelAfterUpdate("orders").Add(func(e *core.ModelEvent) error {
-		order, ok := e.Model.(*models.Record)
-		if !ok {
-			log.Print("Error: Could not cast model to *models.Record")
-			return fmt.Errorf("model casting error")
-		}
-
+	app.OnRecordAfterUpdateSuccess("orders").BindFunc(func(e *core.RecordEvent) error {
+		order := e.Record
 		if order.GetString("status") != "COMPLETE" || order.GetString("vpn_config") != "" {
 			return nil
 		}
 
 		planId := order.GetString("plan")
-		plan, err := app.Dao().FindFirstRecordByData("plans", "id", planId)
+		plan, err := app.FindFirstRecordByData("plans", "id", planId)
 		if err != nil {
 			log.Print("Error retrieving plan: ", err)
 			return err
@@ -274,140 +264,166 @@ func main() {
 
 		// Handle the result
 		server := servers[0]
-		if server == nil {
-			log.Print("Error: Server is nil")
-			return fmt.Errorf("server not found")
-		}
+		queries.CreateOrUpdateVpnConfig(app, server, plan, order, nil)
+		// if server == nil {
+		// 	log.Print("Error: Server is nil")
+		// 	return fmt.Errorf("server not found")
+		// }
 
-		log.Print("server connection: ", server.GetString("hostname"))
-		if server.GetString("type") == "OUTLINE" {
-			apiUrl := server.GetString("management_api_url")
-			vpnConfigsCollection, err := app.Dao().FindCollectionByNameOrId("vpn_configs")
-			if err != nil {
-				return nil
-			}
-			vpnConfig := models.NewRecord(vpnConfigsCollection)
-			if err := app.Dao().SaveRecord(vpnConfig); err != nil {
-				return err
-			}
-			accessKeyConfig, err := outlineApi.CreateAccessKey(apiUrl, vpnConfig.Id, int64(plan.GetInt("usage_limit_gb")))
-			if err != nil {
-				return nil
-			}
-			serverNewCapacity := server.GetInt("capacity") - 1
-			server.Set("capacity", serverNewCapacity)
-			if err := app.Dao().SaveRecord(server); err != nil {
-				return err
-			}
-			planNewCapacity := plan.GetInt("capacity") - 1
-			plan.Set("capacity", planNewCapacity)
-			if err := app.Dao().SaveRecord(plan); err != nil {
-				return err
-			}
-			// create new vpn config
+		// log.Print("server connection: ", server.GetString("hostname"))
+		// if server.GetString("type") == "OUTLINE" {
+		// 	apiUrl := server.GetString("management_api_url")
+		// 	vpnConfigsCollection, err := app.FindCollectionByNameOrId("vpn_configs")
+		// 	if err != nil {
+		// 		return nil
+		// 	}
+		// 	vpnConfig := core.NewRecord(vpnConfigsCollection)
+		// 	if err := app.Save(vpnConfig); err != nil {
+		// 		return err
+		// 	}
+		// 	accessKeyConfig, err := outlineApi.CreateAccessKey(apiUrl, vpnConfig.Id, int64(plan.GetInt("usage_limit_gb")))
+		// 	if err != nil {
+		// 		return nil
+		// 	}
+		// 	serverNewCapacity := server.GetInt("capacity") - 1
+		// 	server.Set("capacity", serverNewCapacity)
+		// 	if err := app.Save(server); err != nil {
+		// 		return err
+		// 	}
+		// 	planNewCapacity := plan.GetInt("capacity") - 1
+		// 	plan.Set("capacity", planNewCapacity)
+		// 	if err := app.Save(plan); err != nil {
+		// 		return err
+		// 	}
+		// 	// create new vpn config
 
-			startDate := time.Now()
-			endDate := helpers.AddDays(plan.GetInt("date_limit"), startDate)
-			// this salt added as prefixing solution to make the connection look like a protocol that is allowed in network
-			// more info: https://www.reddit.com/r/outlinevpn/wiki/index/prefixing/
-			accessKeyConfig.AccessUrl = accessKeyConfig.AccessUrl + "&" + "%13%03%03%3F"
-			jsonAccessKeyConfig, err := json.Marshal(accessKeyConfig)
-			if err != nil {
-				return nil
-			}
-			vpnConfig.Set("plan", planId)
-			vpnConfig.Set("user", order.GetString("user"))
-			vpnConfig.Set("start_date", startDate)
-			vpnConfig.Set("end_date", endDate)
-			vpnConfig.Set("type", "OUTLINE")
-			vpnConfig.Set("usage_in_gb", plan.GetInt("usage_limit_gb"))
-			vpnConfig.Set("server", server.Id)
-			vpnConfig.Set("connection_data", string(jsonAccessKeyConfig))
-			if err := app.Dao().SaveRecord(vpnConfig); err != nil {
-				return err
-			}
-			order.Set("vpn_config", vpnConfig.GetId())
-			if err := app.Dao().SaveRecord(order); err != nil {
-				return err
-			}
-			tgbotWebhookServer := env.Get("TELEGRAM_WEBHOOK_URL")
+		// 	startDate := time.Now()
+		// 	endDate := helpers.AddDays(plan.GetInt("date_limit"), startDate)
+		// 	// this salt added as prefixing solution to make the connection look like a protocol that is allowed in network
+		// 	// more info: https://www.reddit.com/r/outlinevpn/wiki/index/prefixing/
+		// 	accessKeyConfig.AccessUrl = accessKeyConfig.AccessUrl + "&" + "%13%03%03%3F"
+		// 	jsonAccessKeyConfig, err := json.Marshal(accessKeyConfig)
+		// 	if err != nil {
+		// 		return nil
+		// 	}
+		// 	vpnConfig.Set("plan", planId)
+		// 	vpnConfig.Set("user", order.GetString("user"))
+		// 	vpnConfig.Set("start_date", startDate)
+		// 	vpnConfig.Set("end_date", endDate)
+		// 	vpnConfig.Set("type", "OUTLINE")
+		// 	vpnConfig.Set("usage_in_gb", plan.GetInt("usage_limit_gb"))
+		// 	vpnConfig.Set("server", server.Id)
+		// 	vpnConfig.Set("connection_data", string(jsonAccessKeyConfig))
+		// 	if err := app.Save(vpnConfig); err != nil {
+		// 		return err
+		// 	}
+		// 	order.Set("vpn_config", vpnConfig.GetId())
+		// 	if err := app.Save(order); err != nil {
+		// 		return err
+		// 	}
+		// 	tgbotWebhookServer := env.Get("TELEGRAM_WEBHOOK_URL")
 
-			user, err := app.Dao().FindRecordById("users", order.GetString("user"))
-			if err != nil {
-				return err
-			}
-			_, err = tgbot.SendVpnConfig(tgbotWebhookServer, user.Username(), order.Id)
-			if err != nil {
-				return err
-			}
-		}
+		// 	user, err := app.FindRecordById("users", order.GetString("user"))
+		// 	if err != nil {
+		// 		return err
+		// 	}
+		// 	_, err = tgbot.SendVpnConfig(tgbotWebhookServer, user.Username(), order.Id)
+		// 	if err != nil {
+		// 		return err
+		// 	}
+		// }
 
 		return nil
 	})
 
-	app.OnModelBeforeDelete("vpn_configs").Add(func(e *core.ModelEvent) error {
-		vpnConfig, ok := e.Model.(*models.Record)
-		if !ok {
-			log.Print("Error:  not cast model to *models.Record")
-			return fmt.Errorf("model casting error")
-		}
-		server, err := app.Dao().FindRecordById("servers", vpnConfig.GetString("server"))
-		if err != nil {
-			return fmt.Errorf("model casting error")
-		}
+	// app.OnModelAfterUpdate("vpn_configs").Add(func(e *core.RecordEvent) error {
+	// 	vpnConfig, ok := e.Record
+	// 	if !ok {
+	// 		log.Print("Error:  not cast model to *core.Record")
+	// 		return fmt.Errorf("model casting error")
+	// 	}
+	// 	server, err := app.FindRecordById("servers", vpnConfig.GetString("server"))
+	// 	if err != nil {
+	// 		return fmt.Errorf("model casting error")
+	// 	}
+	// 	fmt.Printf("hello from %v %v", server, vpnConfig)
+	// 	plan, err := app.FindRecordById("plans", vpnConfig.GetString("plan"))
+	// 	if err != nil {
+	// 		return fmt.Errorf("model casting error")
+	// 	}
+	// 	orders, err := app.FindRecordsByExpr("orders", dbx.HashExp{"vpn_config": vpnConfig.GetId()})
+	// 	if err != nil || orders[0] == nil {
+	// 		return fmt.Errorf("model casting error")
+	// 	}
+	// 	queries.CreateOrUpdateVpnConfig(app, server, plan, orders[0], vpnConfig)
 
-		if vpnConfig.GetString("type") == "OUTLINE" {
-			connectionDataStr := vpnConfig.GetString("connection_data")
+	// 	return nil
+	// })
 
-			var connectionDataStruct outlineApi.AccessKey
-			err := json.Unmarshal([]byte(connectionDataStr), &connectionDataStruct)
-			if err != nil {
-				return fmt.Errorf("failed to unmarshal connection_data: %w", err)
-			}
-			managementApiUrl := server.GetString("management_api_url")
-			if connectionDataStruct.ID != "" && managementApiUrl != "" {
-				err = outlineApi.DeleteAccessKey(managementApiUrl, connectionDataStruct.ID)
-				if err != nil {
-					return fmt.Errorf("failed to delete access key: %w", err)
-				}
+	// app.OnModelAfterUpdate("vpn_configs").Add(func(e *core.RecordEvent) error {
+	// 	vpnConfig, ok := e.Record
+	// 	if !ok {
+	// 		fmt.Printf("model casting error")
+	// 		return nil
+	// 	}
+	// 	server, err := app.FindRecordById("servers", vpnConfig.GetString("server"))
+	// 	if err != nil {
+	// 		fmt.Print("server model casting error")
+	// 		return nil
+	// 	}
 
-				plan, err := app.Dao().FindRecordById("plans", vpnConfig.GetString("plan"))
-				if err != nil {
-					log.Println(err)
-				}
-				_, err = app.Dao().DB().NewQuery(`UPDATE plans SET capacity={:planNewCapacity} WHERE id={:planId}`).Bind(dbx.Params{"planNewCapacity": plan.GetInt("capacity") + 1, "planId": plan.GetId()}).Execute()
-				if err != nil {
-					return fmt.Errorf("failed to update plan capacity: %w", err)
-				}
-				_, err = app.Dao().DB().NewQuery(`UPDATE servers SET capacity={:planNewCapacity} WHERE id={:serverId}`).Bind(dbx.Params{"planNewCapacity": server.GetInt("capacity") + 1, "serverId": server.GetId()}).Execute()
-				if err != nil {
-					return fmt.Errorf("failed to update server capacity: %w", err)
-				}
-			}
-		}
-		return nil
-	})
+	// 	if vpnConfig.GetString("type") == "OUTLINE" {
+	// 		connectionDataStr := vpnConfig.GetString("connection_data")
 
-	app.OnModelAfterUpdate("order_approval").Add(func(e *core.ModelEvent) error {
-		order_approval := e.Model.(*models.Record)
+	// 		var connectionDataStruct outlineApi.AccessKey
+	// 		err := json.Unmarshal([]byte(connectionDataStr), &connectionDataStruct)
+	// 		if err != nil {
+	// 			return fmt.Errorf("failed to unmarshal connection_data: %w", err)
+	// 		}
+	// 		managementApiUrl := server.GetString("management_api_url")
+	// 		if connectionDataStruct.ID != "" && managementApiUrl != "" {
+	// 			err = outlineApi.DeleteAccessKey(managementApiUrl, connectionDataStruct.ID)
+	// 			if err != nil {
+	// 				fmt.Printf("failed to delete access key: %w", err)
+	// 			}
+
+	// 			plan, err := app.FindRecordById("plans", vpnConfig.GetString("plan"))
+	// 			if err != nil {
+	// 				log.Println(err)
+	// 			}
+	// 			_, err = app.DB().NewQuery(`UPDATE plans SET capacity={:planNewCapacity} WHERE id={:planId}`).Bind(dbx.Params{"planNewCapacity": plan.GetInt("capacity") + 1, "planId": plan.GetId()}).Execute()
+	// 			if err != nil {
+	// 				return fmt.Errorf("failed to update plan capacity: %w", err)
+	// 			}
+	// 			_, err = app.DB().NewQuery(`UPDATE servers SET capacity={:planNewCapacity} WHERE id={:serverId}`).Bind(dbx.Params{"planNewCapacity": server.GetInt("capacity") + 1, "serverId": server.GetId()}).Execute()
+	// 			if err != nil {
+	// 				return fmt.Errorf("failed to update server capacity: %w", err)
+	// 			}
+	// 		}
+	// 	}
+	// 	return nil
+	// })
+
+	app.OnRecordAfterUpdateSuccess("order_approval").BindFunc(func(e *core.RecordEvent) error {
+		order_approval := e.Record
 		orderId := order_approval.GetString("order")
-		payment, err := app.Dao().FindFirstRecordByData("payments", "order", orderId)
+		payment, err := app.FindFirstRecordByData("payments", "order", orderId)
 		if err != nil {
 			return err
 		}
 		is_approved := order_approval.GetBool(("is_approved"))
 		if is_approved {
 			fmt.Println("is_approved", orderId, payment)
-			order, err := app.Dao().FindRecordById("orders", orderId)
+			order, err := app.FindRecordById("orders", orderId)
 			if err != nil {
 				return err
 			}
 			order.Set("status", "COMPLETE")
 			payment.Set("status", "PAID")
-			if err := app.Dao().SaveRecord(order); err != nil {
+			if err := app.Save(order); err != nil {
 				return err
 			}
-			if err := app.Dao().SaveRecord(payment); err != nil {
+			if err := app.Save(payment); err != nil {
 				return err
 			}
 		}

@@ -9,10 +9,10 @@ import (
 	"spider-vpn/constants"
 	"strconv"
 
-	"github.com/pocketbase/pocketbase/models"
+	"github.com/pocketbase/pocketbase/core"
 )
 
-func SendNewOrderApprovalToAdmins(tgbotWebhookServer string, orderApprovalId string, adminUsers []*models.Record) (any, error) {
+func SendNewOrderApprovalToAdmins(tgbotWebhookServer string, orderApprovalId string, adminUsers []*core.Record) (any, error) {
 	for _, adminUser := range adminUsers {
 		_, err := http.Get(tgbotWebhookServer + "/trigger/send-new-order-approval-admin?order_approval_id=" + orderApprovalId + "&user_id=" + adminUser.GetString("tg_id"))
 		if err != nil {
@@ -22,7 +22,7 @@ func SendNewOrderApprovalToAdmins(tgbotWebhookServer string, orderApprovalId str
 	return nil, nil
 }
 
-func SendServersHealthToAdmins(tgbotWebhookServer string, ServerHealthStatuses []constants.ServerHealthStatus, adminUsers []*models.Record) (any, error) {
+func SendServersHealthToAdmins(tgbotWebhookServer string, ServerHealthStatuses []constants.ServerHealthStatus, adminUsers []*core.Record) (any, error) {
 	var bodyReader *bytes.Reader
 	jsonServerHealthStatuses, err := json.Marshal(ServerHealthStatuses)
 	bodyReader = bytes.NewReader(jsonServerHealthStatuses)
