@@ -78,18 +78,24 @@ func CreateOrUpdateVpnConfig(app *pocketbase.PocketBase, server *core.Record, pl
 	log.Print("server connection: ", server.GetString("hostname"))
 	if server.GetString("type") == "OUTLINE" {
 		apiUrl := server.GetString("management_api_url")
+
 		var vpnConfig *core.Record
 		var startDate time.Time
 		var endDate time.Time
 
 		if updatedVpnConfig == nil {
 			vpnConfigsCollection, err := app.FindCollectionByNameOrId("vpn_configs")
+
 			if err != nil {
-				return nil
+				fmt.Errorf("error ", err)
+				return err
 			}
 			vpnConfig = core.NewRecord(vpnConfigsCollection)
-
+			vpnConfig.Set("plan", plan.Id)
+			vpnConfig.Set("user", order.GetString("user"))
 			if err := app.Save(vpnConfig); err != nil {
+				fmt.Errorf("error ", err)
+
 				return err
 			}
 			startDate = time.Now()
@@ -100,8 +106,9 @@ func CreateOrUpdateVpnConfig(app *pocketbase.PocketBase, server *core.Record, pl
 			endDate = vpnConfig.GetDateTime("end_date").Time()
 		}
 		accessKeyConfig, err := outlineApi.CreateAccessKey(apiUrl, vpnConfig.Id, int64(plan.GetInt("usage_limit_gb")))
+
 		if err != nil {
-			return nil
+			return err
 		}
 		serverNewCapacity := server.GetInt("capacity") - 1
 		server.Set("capacity", serverNewCapacity)
@@ -121,8 +128,6 @@ func CreateOrUpdateVpnConfig(app *pocketbase.PocketBase, server *core.Record, pl
 		if err != nil {
 			return nil
 		}
-		vpnConfig.Set("plan", plan.Id)
-		vpnConfig.Set("user", order.GetString("user"))
 		vpnConfig.Set("start_date", startDate)
 		vpnConfig.Set("end_date", endDate)
 		vpnConfig.Set("type", "OUTLINE")
@@ -142,7 +147,7 @@ func CreateOrUpdateVpnConfig(app *pocketbase.PocketBase, server *core.Record, pl
 		if err != nil {
 			return err
 		}
-		_, err = tgbot.SendVpnConfig(tgbotWebhookServer, user.GetString("username"), order.Id)
+		_, err = tgbot.SendVpnConfig(tgbotWebhookServer, user.GetString("tg_id"), order.Id)
 		if err != nil {
 			return err
 		}

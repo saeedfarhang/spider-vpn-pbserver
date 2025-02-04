@@ -50,7 +50,7 @@ func HandleConfigsExpiry(app *pocketbase.PocketBase) (err error) {
 		if err != nil {
 			return fmt.Errorf("error: %v", err)
 		}
-		webhooks.SendExpiryVpnConfigNotification(tgbotWebhookServer, user.GetString("username"), nearExpiryOrder.Id, time.Until(vpnConfig.GetDateTime("end_date").Time()).Hours(), vpnConfig.GetInt("remain_data_mb"))
+		webhooks.SendExpiryVpnConfigNotification(tgbotWebhookServer, user.GetString("tg_id"), nearExpiryOrder.Id, time.Until(vpnConfig.GetDateTime("end_date").Time()).Hours(), vpnConfig.GetInt("remain_data_mb"))
 	}
 	fmt.Println("expiredOrders: ", expiredOrders)
 	for _, expiredOrder := range expiredOrders {
@@ -70,7 +70,7 @@ func HandleConfigsExpiry(app *pocketbase.PocketBase) (err error) {
 			} else {
 				log.Print("Successfully Remove Expired Orders")
 			}
-			webhooks.SendDeleteDeprecatedVpnConfigNotification(tgbotWebhookServer, user.GetString("username"), expiredOrder.Id)
+			webhooks.SendDeleteDeprecatedVpnConfigNotification(tgbotWebhookServer, user.GetString("tg_id"), expiredOrder.Id)
 			return nil
 		}
 	}

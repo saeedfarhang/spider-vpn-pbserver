@@ -8,16 +8,19 @@ import (
 	"net/http"
 	"os"
 	env "spider-vpn/config"
+	"spider-vpn/constants"
 	"spider-vpn/helpers/queries"
 	outlineApi "spider-vpn/wrappers/outline/api"
 	tgbot "spider-vpn/wrappers/tg-bot"
 	webhooks "spider-vpn/wrappers/tg-bot"
+	"strings"
 
 	"github.com/labstack/echo/v5"
 	"github.com/pocketbase/dbx"
 	"github.com/pocketbase/pocketbase"
 	"github.com/pocketbase/pocketbase/apis"
 	"github.com/pocketbase/pocketbase/core"
+	"github.com/pocketbase/pocketbase/plugins/migratecmd"
 	"github.com/pocketbase/pocketbase/tools/template"
 	"github.com/robfig/cron/v3"
 )
@@ -35,8 +38,18 @@ type AccessKey struct {
 }
 
 func main() {
-	tgbotWebhookServer := env.Get("TELEGRAM_WEBHOOK_URL")
 	app := pocketbase.New()
+
+	// loosely check if it was executed using "go run"
+	isGoRun := strings.HasPrefix(os.Args[0], os.TempDir())
+
+	migratecmd.MustRegister(app, app.RootCmd, migratecmd.Config{
+		// enable auto creation of migration files when making collection changes in the Dashboard
+		// (the isGoRun check is to enable it only during development)
+		Automigrate: isGoRun,
+	})
+
+	tgbotWebhookServer := env.Get("TELEGRAM_WEBHOOK_URL")
 	// serves static files from the provided public dir (if exists)
 	app.OnServe().BindFunc(func(e *core.ServeEvent) error {
 		e.Router.GET("/*", apis.Static(os.DirFS("./pb_public"), false))
@@ -142,15 +155,20 @@ func main() {
 			Bind(dbx.Params{"id": e.Record.Id}).Execute()
 
 		// Fetch related pricing records for the plan
-		pricings := []*core.Record{}
+		pricings := []constants.Pricing{} // Use a pointer slice
 		err = app.DB().NewQuery(`
-			SELECT pricing.* 
-			FROM pricing 
+			SELECT pricing.*
+			FROM pricing
 			JOIN plans_pricing ON plans_pricing.pricing = pricing.id 
 			WHERE plans_pricing.plan = {:planId} AND plans_pricing.gateway = {:gatewayId}
 		`).Bind(dbx.Params{"planId": planId, "gatewayId": gatewayId}).All(&pricings)
 		if err != nil {
+			fmt.Println("Database query error:", err)
 			return err
+		}
+
+		if len(pricings) == 0 {
+			fmt.Println("No pricing records found")
 		}
 
 		// Create payments for each related pricing
@@ -180,7 +198,7 @@ func main() {
 					return err
 				}
 				if user.GetBool("first_test_done") {
-					_, err = tgbot.SendVpnConfig(tgbotWebhookServer, user.GetString("username"), "Nil")
+					_, err = tgbot.SendVpnConfig(tgbotWebhookServer, user.GetString("tg_id"), "Nil")
 					if err != nil {
 						return err
 					}
@@ -265,144 +283,8 @@ func main() {
 		// Handle the result
 		server := servers[0]
 		queries.CreateOrUpdateVpnConfig(app, server, plan, order, nil)
-		// if server == nil {
-		// 	log.Print("Error: Server is nil")
-		// 	return fmt.Errorf("server not found")
-		// }
-
-		// log.Print("server connection: ", server.GetString("hostname"))
-		// if server.GetString("type") == "OUTLINE" {
-		// 	apiUrl := server.GetString("management_api_url")
-		// 	vpnConfigsCollection, err := app.FindCollectionByNameOrId("vpn_configs")
-		// 	if err != nil {
-		// 		return nil
-		// 	}
-		// 	vpnConfig := core.NewRecord(vpnConfigsCollection)
-		// 	if err := app.Save(vpnConfig); err != nil {
-		// 		return err
-		// 	}
-		// 	accessKeyConfig, err := outlineApi.CreateAccessKey(apiUrl, vpnConfig.Id, int64(plan.GetInt("usage_limit_gb")))
-		// 	if err != nil {
-		// 		return nil
-		// 	}
-		// 	serverNewCapacity := server.GetInt("capacity") - 1
-		// 	server.Set("capacity", serverNewCapacity)
-		// 	if err := app.Save(server); err != nil {
-		// 		return err
-		// 	}
-		// 	planNewCapacity := plan.GetInt("capacity") - 1
-		// 	plan.Set("capacity", planNewCapacity)
-		// 	if err := app.Save(plan); err != nil {
-		// 		return err
-		// 	}
-		// 	// create new vpn config
-
-		// 	startDate := time.Now()
-		// 	endDate := helpers.AddDays(plan.GetInt("date_limit"), startDate)
-		// 	// this salt added as prefixing solution to make the connection look like a protocol that is allowed in network
-		// 	// more info: https://www.reddit.com/r/outlinevpn/wiki/index/prefixing/
-		// 	accessKeyConfig.AccessUrl = accessKeyConfig.AccessUrl + "&" + "%13%03%03%3F"
-		// 	jsonAccessKeyConfig, err := json.Marshal(accessKeyConfig)
-		// 	if err != nil {
-		// 		return nil
-		// 	}
-		// 	vpnConfig.Set("plan", planId)
-		// 	vpnConfig.Set("user", order.GetString("user"))
-		// 	vpnConfig.Set("start_date", startDate)
-		// 	vpnConfig.Set("end_date", endDate)
-		// 	vpnConfig.Set("type", "OUTLINE")
-		// 	vpnConfig.Set("usage_in_gb", plan.GetInt("usage_limit_gb"))
-		// 	vpnConfig.Set("server", server.Id)
-		// 	vpnConfig.Set("connection_data", string(jsonAccessKeyConfig))
-		// 	if err := app.Save(vpnConfig); err != nil {
-		// 		return err
-		// 	}
-		// 	order.Set("vpn_config", vpnConfig.GetId())
-		// 	if err := app.Save(order); err != nil {
-		// 		return err
-		// 	}
-		// 	tgbotWebhookServer := env.Get("TELEGRAM_WEBHOOK_URL")
-
-		// 	user, err := app.FindRecordById("users", order.GetString("user"))
-		// 	if err != nil {
-		// 		return err
-		// 	}
-		// 	_, err = tgbot.SendVpnConfig(tgbotWebhookServer, user.Username(), order.Id)
-		// 	if err != nil {
-		// 		return err
-		// 	}
-		// }
-
 		return nil
 	})
-
-	// app.OnModelAfterUpdate("vpn_configs").Add(func(e *core.RecordEvent) error {
-	// 	vpnConfig, ok := e.Record
-	// 	if !ok {
-	// 		log.Print("Error:  not cast model to *core.Record")
-	// 		return fmt.Errorf("model casting error")
-	// 	}
-	// 	server, err := app.FindRecordById("servers", vpnConfig.GetString("server"))
-	// 	if err != nil {
-	// 		return fmt.Errorf("model casting error")
-	// 	}
-	// 	fmt.Printf("hello from %v %v", server, vpnConfig)
-	// 	plan, err := app.FindRecordById("plans", vpnConfig.GetString("plan"))
-	// 	if err != nil {
-	// 		return fmt.Errorf("model casting error")
-	// 	}
-	// 	orders, err := app.FindRecordsByExpr("orders", dbx.HashExp{"vpn_config": vpnConfig.GetId()})
-	// 	if err != nil || orders[0] == nil {
-	// 		return fmt.Errorf("model casting error")
-	// 	}
-	// 	queries.CreateOrUpdateVpnConfig(app, server, plan, orders[0], vpnConfig)
-
-	// 	return nil
-	// })
-
-	// app.OnModelAfterUpdate("vpn_configs").Add(func(e *core.RecordEvent) error {
-	// 	vpnConfig, ok := e.Record
-	// 	if !ok {
-	// 		fmt.Printf("model casting error")
-	// 		return nil
-	// 	}
-	// 	server, err := app.FindRecordById("servers", vpnConfig.GetString("server"))
-	// 	if err != nil {
-	// 		fmt.Print("server model casting error")
-	// 		return nil
-	// 	}
-
-	// 	if vpnConfig.GetString("type") == "OUTLINE" {
-	// 		connectionDataStr := vpnConfig.GetString("connection_data")
-
-	// 		var connectionDataStruct outlineApi.AccessKey
-	// 		err := json.Unmarshal([]byte(connectionDataStr), &connectionDataStruct)
-	// 		if err != nil {
-	// 			return fmt.Errorf("failed to unmarshal connection_data: %w", err)
-	// 		}
-	// 		managementApiUrl := server.GetString("management_api_url")
-	// 		if connectionDataStruct.ID != "" && managementApiUrl != "" {
-	// 			err = outlineApi.DeleteAccessKey(managementApiUrl, connectionDataStruct.ID)
-	// 			if err != nil {
-	// 				fmt.Printf("failed to delete access key: %w", err)
-	// 			}
-
-	// 			plan, err := app.FindRecordById("plans", vpnConfig.GetString("plan"))
-	// 			if err != nil {
-	// 				log.Println(err)
-	// 			}
-	// 			_, err = app.DB().NewQuery(`UPDATE plans SET capacity={:planNewCapacity} WHERE id={:planId}`).Bind(dbx.Params{"planNewCapacity": plan.GetInt("capacity") + 1, "planId": plan.GetId()}).Execute()
-	// 			if err != nil {
-	// 				return fmt.Errorf("failed to update plan capacity: %w", err)
-	// 			}
-	// 			_, err = app.DB().NewQuery(`UPDATE servers SET capacity={:planNewCapacity} WHERE id={:serverId}`).Bind(dbx.Params{"planNewCapacity": server.GetInt("capacity") + 1, "serverId": server.GetId()}).Execute()
-	// 			if err != nil {
-	// 				return fmt.Errorf("failed to update server capacity: %w", err)
-	// 			}
-	// 		}
-	// 	}
-	// 	return nil
-	// })
 
 	app.OnRecordAfterUpdateSuccess("order_approval").BindFunc(func(e *core.RecordEvent) error {
 		order_approval := e.Record
