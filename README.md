@@ -1,132 +1,191 @@
 # Go Project Documentation
 
 ## Project Overview
-
-This Go project is a VPN management system that integrates with Telegram bots, Outline VPN, and PocketBase for data storage and API interactions. It includes functionalities such as order processing, payment handling, and automated background tasks.
-
 ## Table of Contents
 
-1. [Project Structure](#project-structure)
-2. [Dependencies](#dependencies)
-3. [Configuration](#configuration)
-4. [Endpoints](#endpoints)
-5. [Scheduled Tasks](#scheduled-tasks)
-6. [Event Handlers](#event-handlers)
-7. [Database Interactions](#database-interactions)
-8. [Error Handling](#error-handling)
-9. [Running the Application](#running-the-application)
+- [Overview](#overview)
+- [Features](#features)
+- [Requirements](#requirements)
+- [Installation](#installation)
+  - [Clone the Repository](#1-clone-the-repository)
+  - [Set Up Environment Variables](#2-set-up-environment-variables)
+  - [Install Dependencies](#3-install-dependencies)
+  - [Build the Application](#4-build-the-application)
+  - [Start the Application](#5-start-the-application)
+- [Running Migrations](#running-migrations)
+  - [Manual Migrations (CLI)](#manual-migrations-cli)
+  - [Automatic Migrations in Code](#automatic-migrations-in-code)
+- [Adding a New Server](#adding-a-new-server)
+  - [Requirements](#requirements-1)
+  - [Setting up Outline VPN](#setting-up-outline-vpn)
+    - [On CentOS](#on-centos)
+- [Usage](#usage)
+- [Contributing](#contributing)
+- [License](#license)
 
 ---
 
-## Project Structure
+## Overview
 
+This project sets up and manages VPN infrastructure, with a specific focus on **Outline VPN** configuration and server management. It utilizes the **PocketBase** backend and integrates with services like **Telegram Bot** for notifications. The backend is built in **Go**, and the server management includes cron jobs, API integrations, and dynamic configuration handling.
+
+---
+
+## Features
+
+- **Server Health Monitoring**: Regular checks for active servers and sending notifications to admins.
+- **Outline VPN Management**: Integration with Outline VPN API for creating and managing access keys.
+- **Cron Jobs**: Scheduling regular tasks such as VPN config syncing and server health checks.
+- **Payment System**: Manages orders, plans, and payments, integrating with payment gateways.
+- **Dynamic Config Generation**: Automatic generation of VPN config files (CSV) for user download.
+- **Webhooks**: Sends server health data and order updates via Telegram Bot.
+
+---
+
+## Requirements
+
+1. **Operating System**:
+   - Ubuntu (Recommended: 18.04 or newer)
+   - CentOS (Recommended: 7 or newer)
+   
+2. **Go Version**: 1.18 or newer
+3. **Docker & Kubernetes** (for deployment)
+4. **PocketBase**: Used as the backend database system
+
+---
+
+## Installation
+
+### 1. Clone the Repository
+
+```bash
+git clone https://github.com/yourusername/projectname.git
+cd projectname
 ```
-/go-project
-│── main.go
-│── config/          # Environment configurations
-│── helpers/         # Utility functions
-│── wrappers/        # API wrappers for external services
-│   ├── outline/api/
-│   ├── tg-bot/
-│── pb_public/       # Static public files
-│── views/           # HTML views
-└── database/        # Database models and queries
+
+### 2. Set Up Environment Variables
+
+Ensure you have the necessary environment variables configured in a `.env` file:
+
+```bash
+TELEGRAM_WEBHOOK_URL=<your-telegram-webhook-url>
+DB_HOST=<database-host>
+DB_PORT=<database-port>
+DB_USER=<database-user>
+DB_PASSWORD=<database-password>
 ```
 
-## Dependencies
+### 3. Install Dependencies
 
-The project relies on several external dependencies:
+Run the following command to install required dependencies:
 
-- `github.com/labstack/echo/v5` - Web framework for API routing
-- `github.com/pocketbase/pocketbase` - Lightweight backend for database operations
-- `github.com/robfig/cron/v3` - Task scheduler for background jobs
-- `github.com/pocketbase/dbx` - Database query builder
+```bash
+go mod tidy
+```
 
-## Configuration
+### 4. Build the Application
 
-The project uses environment variables stored in a `.env` file or a configuration module:
+To build the application:
+
+```bash
+go build -o app
+```
+
+### 5. Start the Application
+
+Start the application using:
+
+```bash
+./app
+```
+
+---
+
+## Running Migrations
+
+To run database migrations, you can use the built-in PocketBase migrations system.
+
+### Manual Migrations (CLI)
+
+1. **Navigate to the project directory:**
+   ```bash
+   cd /path/to/your/project
+   ```
+
+2. **Run the migrations:**
+   ```bash
+   ./pb migrate
+   ```
+
+### Automatic Migrations in Code
+
+Integrate migration checks directly into your Go application, so they run automatically on app startup:
 
 ```go
-tgbotWebhookServer := env.Get("TELEGRAM_WEBHOOK_URL")
+app.OnBeforeServe().Add(func(e *core.ServeEvent) error {
+    if err := app.Migrate(); err != nil {
+        return fmt.Errorf("failed to run migrations: %w", err)
+    }
+    return nil
+})
 ```
 
-## Endpoints
+---
 
-### Static File Handling
+## Adding a New Server
 
-- `GET /*` - Serves static files from `pb_public` directory.
+To set up a new server for your VPN infrastructure, you should ensure that the server is running either **Ubuntu** or **CentOS**. Both operating systems are supported for running the required VPN software.
 
-### Pricing Page
+### Requirements
 
-- `GET /pricing/:name` - Renders pricing page using HTML templates.
+1. **Operating System**: 
+   - Ubuntu (Recommended: 18.04 or newer)
+   - CentOS (Recommended: 7 or newer)
+   
+2. **Server Configuration**: The server should meet the minimum hardware requirements for hosting the VPN service:
+   - At least 1 GB RAM (2 GB recommended)
+   - 1 vCPU (2 or more recommended)
+   - A stable internet connection
 
-### VPN Configuration Download
+### Setting up Outline VPN
 
-- `GET /ssconf/:conf_id` - Retrieves VPN configuration and provides it as a CSV file.
+For **Ubuntu** and **CentOS** systems, you will need to install and configure the Outline VPN server.
 
-## Scheduled Tasks
+#### On **CentOS**:
 
-Cron jobs are used for automated background processing:
+1. **Install `wget`**:
+   First, you need to ensure that `wget` is installed on your CentOS server.
 
-- `"30 * * * *"` - Synchronizes VPN usage data.
-- `"*/1 * * * *"` - Checks server health and notifies Telegram admins.
+   ```bash
+   sudo yum install wget -y
+   ```
 
-## Event Handlers
+2. **Install Outline VPN**:
+   - Visit the **Outline Manager** to get the installation script.
+   - Copy the installation script and paste it on your server:
 
-### Order Creation
+   ```bash
+   wget https://outlinevpn.github.io/install.sh
+   sudo bash install.sh
+   ```
 
-Triggers actions when a new order is created:
+   - Follow the instructions provided by Outline Manager to complete the installation.
 
-- Updates order status to `INCOMPLETE`.
-- Generates payment records.
-- Handles free-tier VPN access.
+---
 
-### Order Approval
+## Usage
 
-Triggered when an order approval record is created:
+Explain how to use the application once it's up and running. Provide examples for interacting with the API or accessing key features.
 
-- Updates the order status to `WAIT_FOR_APPROVE`.
-- Sends Telegram notifications to admins.
+---
 
-### Order Completion
+## Contributing
 
-When an order is marked as `COMPLETE`, the system:
+We welcome contributions! Please fork the repository, make changes, and submit a pull request.
 
-- Allocates VPN resources.
-- Assigns servers based on capacity.
-- Sends configuration details to the user.
+---
 
-### VPN Configuration Deletion
+## License
 
-Before deleting a VPN configuration:
-
-- Revokes Outline VPN access keys.
-- Updates server and plan capacities.
-
-## Database Interactions
-
-Uses PocketBase ORM for querying and updating records:
-
-```go
-app.Dao().FindRecordById("vpn_configs", conf_id)
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 ```
-
-## Error Handling
-
-Errors are logged and returned where applicable:
-
-```go
-if err != nil {
-    log.Print("Error retrieving plan: ", err)
-    return err
-}
-```
-
-## Running the Application
-
-To start the server:
-
-```sh
-go run main.go
-```
-
