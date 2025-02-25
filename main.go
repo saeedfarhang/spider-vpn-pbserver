@@ -114,27 +114,28 @@ func main() {
 		scheduler.AddFunc("30 * * * *", func() {
 			err := queries.SyncVpnConfigsRemainUsage(app)
 			if err != nil {
-				fmt.Printf("Failed: %v", err)
+				fmt.Println("Failed: ", err)
 				return
 			}
 			queries.HandleConfigsExpiry(app)
-			log.Printf("add function to cronjob. each 1min")
+			log.Println("add SyncVpnConfigsRemainUsage() to cronjob. each 30 min")
 		})
+
 		scheduler.AddFunc("*/1 * * * *", func() {
 			serverStatuses, err := queries.CheckActiveServersHealth(app)
 			if err != nil {
-				fmt.Printf("Failed: %v", err)
+				fmt.Println("CheckActiveServersHealth Failed:", err)
 				return
 			}
+			fmt.Printf("Health Check Result: %v", serverStatuses)
 			tgbotWebhookServer := env.Get("TELEGRAM_WEBHOOK_URL")
 			tgAdminUsers, err := app.FindRecordsByFilter("users", "is_admin=true", "id", 100, 0)
 			if err != nil {
-				fmt.Printf("Failed: %v", err)
+				fmt.Print("FindRecordsByFilter Failed: ", err)
 				return
 			}
 			webhooks.SendServersHealthToAdmins(tgbotWebhookServer, serverStatuses, tgAdminUsers)
-
-			log.Printf("add function to cronjob. each 1min, %v", serverStatuses)
+			log.Println("add SendServersHealthToAdmins() to cronjob. each 1min")
 		})
 
 		scheduler.Start()

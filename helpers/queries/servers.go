@@ -161,7 +161,6 @@ func CheckActiveServersHealth(app *pocketbase.PocketBase) (serverStatuses []cons
 		return nil, err
 	}
 	for _, server := range servers {
-		fmt.Printf("server: %v", server)
 		apiUrl := server.GetString("management_api_url")
 		healthy, err := outlineApi.CheckServerHealth(apiUrl)
 		if err != nil {
