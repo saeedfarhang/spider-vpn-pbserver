@@ -74,7 +74,11 @@ func main() {
 		})
 		e.Router.GET("/ssconf/{conf_id}", func(e *core.RequestEvent) error {
 			conf_id := e.Request.PathValue("conf_id")
-			vpnConfig, err := app.FindRecordById("vpn_configs", conf_id)
+			order, err := app.FindRecordById("orders", conf_id)
+			if err != nil {
+				return err
+			}
+			vpnConfig, err := app.FindRecordById("vpn_configs", order.GetString("vpn_config"))
 			if err != nil {
 				return err
 			}
@@ -225,6 +229,50 @@ func main() {
 			}
 		}
 		return nil
+	})
+	app.OnRecordAfterUpdateSuccess("vpn_configs").BindFunc(func(e *core.RecordEvent) error {
+		vpnConfig := e.Record
+		if vpnConfig.GetString("server") != "" {
+			return e.Next()
+		}
+		order, err := app.FindFirstRecordByData("orders", "vpn_config", vpnConfig.Id)
+		if err != nil {
+			return fmt.Errorf("no order found for this vpn config %s", vpnConfig.Id)
+		}
+		if order.GetString("status") != "COMPLETE" {
+			return e.Next()
+		}
+
+		planId := order.GetString("plan")
+		plan, err := app.FindFirstRecordByData("plans", "id", planId)
+		if err != nil {
+			log.Print("Error retrieving plan: ", err)
+			return err
+		}
+		if plan == nil {
+			log.Print("Error: Plan is nil")
+			return fmt.Errorf("plan not found")
+		}
+
+		serverIds := plan.GetStringSlice("servers")
+		if len(serverIds) == 0 {
+			log.Print("Error: No servers associated with the plan")
+			return fmt.Errorf("no servers associated with the plan")
+		}
+
+		servers, err := queries.GetActiveServers(app, serverIds, true, 1)
+		if err != nil {
+			return err
+		}
+
+		if len(servers) == 0 {
+			return fmt.Errorf("no servers found")
+		}
+
+		// Handle the result
+		server := servers[0]
+		queries.CreateOrUpdateVpnConfig(app, server, plan, order, vpnConfig)
+		return e.Next()
 	})
 
 	app.OnRecordAfterCreateSuccess("order_approval").BindFunc(func(e *core.RecordEvent) error {
