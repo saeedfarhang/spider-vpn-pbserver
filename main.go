@@ -274,17 +274,40 @@ func main() {
 		queries.CreateOrUpdateVpnConfig(app, server, plan, order, vpnConfig)
 		return e.Next()
 	})
+	app.OnRecordAfterDeleteSuccess("vpn_configs").BindFunc(func(e *core.RecordEvent) error {
+		vpnConfig := e.Record
+		fmt.Printf("vpn config %s", vpnConfig.GetString("connection_data"))
+		connectionDataStr := vpnConfig.GetString("connection_data")
+		var connectionDataStruct outlineApi.AccessKey
+		err := json.Unmarshal([]byte(connectionDataStr), &connectionDataStruct)
+		if err != nil {
+			fmt.Println("failed to unmarshal connection_data: ", connectionDataStr)
+			return fmt.Errorf("failed to unmarshal connection_data: %w", err)
+		}
 
+		server, err := app.FindRecordById("servers", vpnConfig.GetString("server"))
+		if err != nil {
+			return fmt.Errorf("failed to get server: %w", err)
+		}
+		if vpnConfig.GetString("type") == "OUTLINE" {
+			apiUrl := server.GetString("management_api_url")
+			err = outlineApi.DeleteAccessKey(apiUrl, connectionDataStruct.ID)
+			if err != nil {
+				return fmt.Errorf("failed to delete config from outline server: %w", err)
+			}
+		}
+		return e.Next()
+	})
 	app.OnRecordAfterCreateSuccess("order_approval").BindFunc(func(e *core.RecordEvent) error {
-		order_approval := e.Record
-		orderId := order_approval.GetString("order")
+		orderApproval := e.Record
+		orderId := orderApproval.GetString("order")
 		order, err := app.FindRecordById("orders", orderId)
 		if err != nil {
 			log.Fatal(err)
 			return nil
 		}
 		order.Set("status", "WAIT_FOR_APPROVE")
-		order.Set("order_approval", order_approval.Id)
+		order.Set("order_approval", orderApproval.Id)
 		if err := app.Save(order); err != nil {
 			return err
 		}
@@ -293,7 +316,7 @@ func main() {
 			log.Fatal(err)
 			return nil
 		}
-		webhooks.SendNewOrderApprovalToAdmins(tgbotWebhookServer, order_approval.Id, tgAdminUsers)
+		webhooks.SendNewOrderApprovalToAdmins(tgbotWebhookServer, orderApproval.Id, tgAdminUsers)
 		return nil
 	})
 

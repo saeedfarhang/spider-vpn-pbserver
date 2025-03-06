@@ -88,16 +88,13 @@ func CreateOrUpdateVpnConfig(app *pocketbase.PocketBase, server *core.Record, pl
 			vpnConfigsCollection, err := app.FindCollectionByNameOrId("vpn_configs")
 
 			if err != nil {
-				fmt.Errorf("error ", err)
-				return err
+				return fmt.Errorf("error %s", err.Error())
 			}
 			vpnConfig = core.NewRecord(vpnConfigsCollection)
 			vpnConfig.Set("plan", plan.Id)
 			vpnConfig.Set("user", order.GetString("user"))
 			if err := app.Save(vpnConfig); err != nil {
-				fmt.Errorf("error ", err)
-
-				return err
+				return fmt.Errorf("error %s", err.Error())
 			}
 			startDate = time.Now()
 			endDate = helpers.AddDays(plan.GetInt("date_limit"), startDate)
