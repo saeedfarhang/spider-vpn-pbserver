@@ -3,12 +3,15 @@ package outlineApi
 import (
 	"bytes"
 	"crypto/tls"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
 	"io/ioutil"
 	"net/http"
 	"strings"
+
+	"github.com/labstack/echo/v5"
 )
 
 type AccessKey struct {
@@ -21,6 +24,18 @@ type AccessKey struct {
 	DataLimit struct {
 		Bytes int64 `json:"bytes"`
 	} `json:"dataLimit,omitempty"`
+}
+
+// this type uses in outline config -> v2ray subscription config convertor.
+type V2RayConfig struct {
+	V          string `json:"v"`
+	Ps         string `json:"ps"`
+	Add        string `json:"add"`
+	Port       string `json:"port"`
+	Method     string `json:"method"`
+	Password   string `json:"password"`
+	Plugin     string `json:"plugin,omitempty"`
+	PluginOpts string `json:"plugin_opts,omitempty"`
 }
 
 type AccessKeysUsage struct {
@@ -240,4 +255,46 @@ func RemoveDataLimit(apiURL string) error {
 	}
 
 	return nil
+}
+
+func ParseOutlineSS(accessURL string) (V2RayConfig, error) {
+	parts := strings.Split(accessURL, "ss://")
+	if len(parts) < 2 {
+		return V2RayConfig{}, echo.NewHTTPError(http.StatusBadRequest, "Invalid Outline SS URL")
+	}
+
+	// Remove query params
+	ssMain := strings.Split(parts[1], "/?")[0]
+	hash := strings.Split(ssMain, "@")
+	// Base64 decode the SS details
+	decoded, err := base64.StdEncoding.DecodeString(hash[0])
+	if err != nil {
+		return V2RayConfig{}, echo.NewHTTPError(http.StatusBadRequest, "Failed to decode SS URL")
+	}
+
+	// Split extracted data (format: method:password@host:port)
+	credentials := strings.Split(string(decoded), "@")
+	if len(credentials) < 1 {
+		return V2RayConfig{}, echo.NewHTTPError(http.StatusBadRequest, "Invalid SS format")
+	}
+
+	auth := strings.Split(credentials[0], ":")
+	hostPort := strings.Split(hash[1], ":")
+	fmt.Printf("decoded: %s,hash: %s\n\nauth: %s, hostport: %s", decoded, hash, auth, hostPort)
+
+	// if len(auth) < 2 || len(hostPort) < 2 {
+	// 	return V2RayConfig{}, fmt.Errorf("invalid SS structure")
+	// }
+
+	// Build V2Ray config
+	return V2RayConfig{
+		V:          "2",
+		Ps:         "Outline-V2Ray",
+		Add:        hostPort[0],
+		Port:       hostPort[1],
+		Method:     auth[0],
+		Password:   auth[1],
+		Plugin:     "v2ray-plugin",
+		PluginOpts: "mode=websocket;tls",
+	}, nil
 }

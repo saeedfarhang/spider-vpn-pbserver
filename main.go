@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/base64"
 	"encoding/csv"
 	"encoding/json"
 	"fmt"
@@ -24,18 +25,6 @@ import (
 	"github.com/pocketbase/pocketbase/tools/template"
 	"github.com/robfig/cron/v3"
 )
-
-type AccessKey struct {
-	ID        string `json:"id"`
-	Name      string `json:"name"`
-	Password  string `json:"password"`
-	Port      int    `json:"port"`
-	Method    string `json:"method"`
-	AccessUrl string `json:"accessUrl"`
-	DataLimit struct {
-		Bytes int64 `json:"bytes"`
-	} `json:"dataLimit,omitempty"`
-}
 
 func main() {
 	app := pocketbase.New()
@@ -90,9 +79,6 @@ func main() {
 				return err
 			}
 
-			// Log the AccessUrl for debugging
-			fmt.Printf("conf: %v\n", connectionDataStruct.AccessUrl)
-
 			// Prepare CSV data
 			csvData := [][]string{
 				{connectionDataStruct.AccessUrl},
@@ -112,6 +98,52 @@ func main() {
 			writer.Flush()
 
 			return e.Next()
+		})
+
+		e.Router.GET("/v2ray/{conf_id}", func(e *core.RequestEvent) error {
+			conf_id := e.Request.PathValue("conf_id")
+			order, err := app.FindRecordById("orders", conf_id)
+			if err != nil {
+				return err
+			}
+			vpnConfig, err := app.FindRecordById("vpn_configs", order.GetString("vpn_config"))
+			if err != nil {
+				return err
+			}
+			// Check if it's Outline VPN
+			if vpnConfig.GetString("type") != "OUTLINE" {
+				return echo.NewHTTPError(http.StatusBadRequest, "This VPN is not an Outline VPN")
+			}
+
+			connectionDataStr := vpnConfig.GetString("connection_data")
+
+			var connectionDataStruct outlineApi.AccessKey
+			err = json.Unmarshal([]byte(connectionDataStr), &connectionDataStruct)
+			if err != nil {
+				return err
+			}
+
+			v2rayConfig, err := outlineApi.ParseOutlineSS(connectionDataStruct.AccessUrl)
+			if err != nil {
+				return err
+			}
+
+			// Encode JSON to Base64
+			jsonData, _ := json.Marshal(v2rayConfig)
+			encodedData := base64.StdEncoding.EncodeToString(jsonData)
+
+			html, err := registry.LoadFiles(
+				"views/v2rayConf.html",
+			).Render(map[string]any{
+				"conf": "data:text/plain;base64," + encodedData,
+			})
+
+			if err != nil {
+				// or redirect to a dedicated 404 HTML page
+				return apis.NewNotFoundError("", err)
+			}
+			return e.HTML(http.StatusOK, html)
+
 		})
 		scheduler := cron.New()
 
@@ -202,7 +234,7 @@ func main() {
 				if err != nil {
 					return err
 				}
-				if user.GetBool("first_test_done") {
+				if user.GetBool("first_test_done") && !user.GetBool("is_admin") {
 					_, err = tgbot.SendVpnConfig(tgbotWebhookServer, user.GetString("tg_id"), "Nil")
 					if err != nil {
 						return err
