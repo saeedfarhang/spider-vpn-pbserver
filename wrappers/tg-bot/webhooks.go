@@ -29,10 +29,20 @@ func SendServersHealthToAdmins(tgbotWebhookServer string, ServerHealthStatuses [
 	if err != nil {
 		log.Fatal(err)
 	}
+	if err != nil {
+		return nil, err
+	}
+
+	fmt.Printf("\nHealth Check Result:\n\n")
+	for _, ServerHealth := range ServerHealthStatuses {
+		fmt.Printf("serverId: %v\nhealthy: %v\n\n", ServerHealth.ServerId, ServerHealth.IsHealthy)
+		if ServerHealth.ErrorMessage != "" {
+			fmt.Printf("error message: %v\n", ServerHealth.ErrorMessage)
+		}
+	}
 
 	for _, adminUser := range adminUsers {
 		_, err := http.Post(tgbotWebhookServer+"/trigger/send-server-health-admin?user_id="+adminUser.GetString("tg_id"), "application/json", bodyReader)
-		fmt.Printf("here: %v, %v %v", bodyReader, adminUser, err)
 		if err != nil {
 			return nil, err
 		}

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/base64"
 	"encoding/csv"
 	"encoding/json"
 	"fmt"
@@ -24,18 +25,6 @@ import (
 	"github.com/pocketbase/pocketbase/tools/template"
 	"github.com/robfig/cron/v3"
 )
-
-type AccessKey struct {
-	ID        string `json:"id"`
-	Name      string `json:"name"`
-	Password  string `json:"password"`
-	Port      int    `json:"port"`
-	Method    string `json:"method"`
-	AccessUrl string `json:"accessUrl"`
-	DataLimit struct {
-		Bytes int64 `json:"bytes"`
-	} `json:"dataLimit,omitempty"`
-}
 
 func main() {
 	app := pocketbase.New()
@@ -74,7 +63,11 @@ func main() {
 		})
 		e.Router.GET("/ssconf/{conf_id}", func(e *core.RequestEvent) error {
 			conf_id := e.Request.PathValue("conf_id")
-			vpnConfig, err := app.FindRecordById("vpn_configs", conf_id)
+			order, err := app.FindRecordById("orders", conf_id)
+			if err != nil {
+				return err
+			}
+			vpnConfig, err := app.FindRecordById("vpn_configs", order.GetString("vpn_config"))
 			if err != nil {
 				return err
 			}
@@ -85,9 +78,6 @@ func main() {
 			if err != nil {
 				return err
 			}
-
-			// Log the AccessUrl for debugging
-			fmt.Printf("conf: %v\n", connectionDataStruct.AccessUrl)
 
 			// Prepare CSV data
 			csvData := [][]string{
@@ -109,32 +99,79 @@ func main() {
 
 			return e.Next()
 		})
+
+		e.Router.GET("/v2ray/{conf_id}", func(e *core.RequestEvent) error {
+			conf_id := e.Request.PathValue("conf_id")
+			order, err := app.FindRecordById("orders", conf_id)
+			if err != nil {
+				return err
+			}
+			vpnConfig, err := app.FindRecordById("vpn_configs", order.GetString("vpn_config"))
+			if err != nil {
+				return err
+			}
+			// Check if it's Outline VPN
+			if vpnConfig.GetString("type") != "OUTLINE" {
+				return echo.NewHTTPError(http.StatusBadRequest, "This VPN is not an Outline VPN")
+			}
+
+			connectionDataStr := vpnConfig.GetString("connection_data")
+
+			var connectionDataStruct outlineApi.AccessKey
+			err = json.Unmarshal([]byte(connectionDataStr), &connectionDataStruct)
+			if err != nil {
+				return err
+			}
+
+			v2rayConfig, err := outlineApi.ParseOutlineSS(connectionDataStruct.AccessUrl)
+			if err != nil {
+				return err
+			}
+
+			// Encode JSON to Base64
+			jsonData, _ := json.Marshal(v2rayConfig)
+			encodedData := base64.StdEncoding.EncodeToString(jsonData)
+
+			html, err := registry.LoadFiles(
+				"views/v2rayConf.html",
+			).Render(map[string]any{
+				"conf": "data:text/plain;base64," + encodedData,
+			})
+
+			if err != nil {
+				// or redirect to a dedicated 404 HTML page
+				return apis.NewNotFoundError("", err)
+			}
+			return e.HTML(http.StatusOK, html)
+
+		})
 		scheduler := cron.New()
 
 		scheduler.AddFunc("30 * * * *", func() {
 			err := queries.SyncVpnConfigsRemainUsage(app)
 			if err != nil {
-				fmt.Printf("Failed: %v", err)
+				fmt.Println("Failed: ", err)
 				return
 			}
 			queries.HandleConfigsExpiry(app)
-			log.Printf("add function to cronjob. each 1min")
+			log.Println("add SyncVpnConfigsRemainUsage() to cronjob. each 30 min")
 		})
+
 		scheduler.AddFunc("*/1 * * * *", func() {
 			serverStatuses, err := queries.CheckActiveServersHealth(app)
 			if err != nil {
-				fmt.Printf("Failed: %v", err)
+				fmt.Println("CheckActiveServersHealth Failed:", err)
 				return
 			}
+			fmt.Printf("Health Check Result: %v", serverStatuses)
 			tgbotWebhookServer := env.Get("TELEGRAM_WEBHOOK_URL")
 			tgAdminUsers, err := app.FindRecordsByFilter("users", "is_admin=true", "id", 100, 0)
 			if err != nil {
-				fmt.Printf("Failed: %v", err)
+				fmt.Print("FindRecordsByFilter Failed: ", err)
 				return
 			}
 			webhooks.SendServersHealthToAdmins(tgbotWebhookServer, serverStatuses, tgAdminUsers)
-
-			log.Printf("add function to cronjob. each 1min, %v", serverStatuses)
+			log.Println("add SendServersHealthToAdmins() to cronjob. each 1min")
 		})
 
 		scheduler.Start()
@@ -197,7 +234,7 @@ func main() {
 				if err != nil {
 					return err
 				}
-				if user.GetBool("first_test_done") {
+				if user.GetBool("first_test_done") && !user.GetBool("is_admin") {
 					_, err = tgbot.SendVpnConfig(tgbotWebhookServer, user.GetString("tg_id"), "Nil")
 					if err != nil {
 						return err
@@ -225,17 +262,84 @@ func main() {
 		}
 		return nil
 	})
+	app.OnRecordAfterUpdateSuccess("vpn_configs").BindFunc(func(e *core.RecordEvent) error {
+		vpnConfig := e.Record
+		if vpnConfig.GetString("server") != "" {
+			return e.Next()
+		}
+		order, err := app.FindFirstRecordByData("orders", "vpn_config", vpnConfig.Id)
+		if err != nil {
+			return fmt.Errorf("no order found for this vpn config %s", vpnConfig.Id)
+		}
+		if order.GetString("status") != "COMPLETE" {
+			return e.Next()
+		}
 
+		planId := order.GetString("plan")
+		plan, err := app.FindFirstRecordByData("plans", "id", planId)
+		if err != nil {
+			log.Print("Error retrieving plan: ", err)
+			return err
+		}
+		if plan == nil {
+			log.Print("Error: Plan is nil")
+			return fmt.Errorf("plan not found")
+		}
+
+		serverIds := plan.GetStringSlice("servers")
+		if len(serverIds) == 0 {
+			log.Print("Error: No servers associated with the plan")
+			return fmt.Errorf("no servers associated with the plan")
+		}
+
+		servers, err := queries.GetActiveServers(app, serverIds, true, 1)
+		if err != nil {
+			return err
+		}
+
+		if len(servers) == 0 {
+			return fmt.Errorf("no servers found")
+		}
+
+		// Handle the result
+		server := servers[0]
+		queries.CreateOrUpdateVpnConfig(app, server, plan, order, vpnConfig)
+		return e.Next()
+	})
+	app.OnRecordAfterDeleteSuccess("vpn_configs").BindFunc(func(e *core.RecordEvent) error {
+		vpnConfig := e.Record
+		fmt.Printf("vpn config %s", vpnConfig.GetString("connection_data"))
+		connectionDataStr := vpnConfig.GetString("connection_data")
+		var connectionDataStruct outlineApi.AccessKey
+		err := json.Unmarshal([]byte(connectionDataStr), &connectionDataStruct)
+		if err != nil {
+			fmt.Println("failed to unmarshal connection_data: ", connectionDataStr)
+			return fmt.Errorf("failed to unmarshal connection_data: %w", err)
+		}
+
+		server, err := app.FindRecordById("servers", vpnConfig.GetString("server"))
+		if err != nil {
+			return fmt.Errorf("failed to get server: %w", err)
+		}
+		if vpnConfig.GetString("type") == "OUTLINE" {
+			apiUrl := server.GetString("management_api_url")
+			err = outlineApi.DeleteAccessKey(apiUrl, connectionDataStruct.ID)
+			if err != nil {
+				return fmt.Errorf("failed to delete config from outline server: %w", err)
+			}
+		}
+		return e.Next()
+	})
 	app.OnRecordAfterCreateSuccess("order_approval").BindFunc(func(e *core.RecordEvent) error {
-		order_approval := e.Record
-		orderId := order_approval.GetString("order")
+		orderApproval := e.Record
+		orderId := orderApproval.GetString("order")
 		order, err := app.FindRecordById("orders", orderId)
 		if err != nil {
 			log.Fatal(err)
 			return nil
 		}
 		order.Set("status", "WAIT_FOR_APPROVE")
-		order.Set("order_approval", order_approval.Id)
+		order.Set("order_approval", orderApproval.Id)
 		if err := app.Save(order); err != nil {
 			return err
 		}
@@ -244,7 +348,7 @@ func main() {
 			log.Fatal(err)
 			return nil
 		}
-		webhooks.SendNewOrderApprovalToAdmins(tgbotWebhookServer, order_approval.Id, tgAdminUsers)
+		webhooks.SendNewOrderApprovalToAdmins(tgbotWebhookServer, orderApproval.Id, tgAdminUsers)
 		return nil
 	})
 

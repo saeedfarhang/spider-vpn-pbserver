@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"math"
 	"strings"
 	"time"
 
@@ -82,30 +83,32 @@ func CreateOrUpdateVpnConfig(app *pocketbase.PocketBase, server *core.Record, pl
 		var vpnConfig *core.Record
 		var startDate time.Time
 		var endDate time.Time
-
+		var remainDataGb int
 		if updatedVpnConfig == nil {
 			vpnConfigsCollection, err := app.FindCollectionByNameOrId("vpn_configs")
 
 			if err != nil {
-				fmt.Errorf("error ", err)
-				return err
+				return fmt.Errorf("error %s", err.Error())
 			}
 			vpnConfig = core.NewRecord(vpnConfigsCollection)
 			vpnConfig.Set("plan", plan.Id)
 			vpnConfig.Set("user", order.GetString("user"))
 			if err := app.Save(vpnConfig); err != nil {
-				fmt.Errorf("error ", err)
-
-				return err
+				return fmt.Errorf("error %s", err.Error())
 			}
 			startDate = time.Now()
 			endDate = helpers.AddDays(plan.GetInt("date_limit"), startDate)
+			remainDataGb = plan.GetInt("usage_limit_gb")
 		} else {
 			vpnConfig = updatedVpnConfig
 			startDate = vpnConfig.GetDateTime("start_date").Time()
 			endDate = vpnConfig.GetDateTime("end_date").Time()
+			remainDataGb = int(math.Ceil(float64(vpnConfig.GetInt("remain_data_mb")) / 1000)) // convert MB to GB
+			if remainDataGb == 0 {
+				remainDataGb = plan.GetInt("usage_limit_gb")
+			}
 		}
-		accessKeyConfig, err := outlineApi.CreateAccessKey(apiUrl, vpnConfig.Id, int64(plan.GetInt("usage_limit_gb")))
+		accessKeyConfig, err := outlineApi.CreateAccessKey(apiUrl, vpnConfig.Id, int64(remainDataGb))
 
 		if err != nil {
 			return err
@@ -126,15 +129,17 @@ func CreateOrUpdateVpnConfig(app *pocketbase.PocketBase, server *core.Record, pl
 		accessKeyConfig.AccessUrl = accessKeyConfig.AccessUrl + "&" + "%13%03%03%3F"
 		jsonAccessKeyConfig, err := json.Marshal(accessKeyConfig)
 		if err != nil {
-			return nil
+			return err
 		}
 		vpnConfig.Set("start_date", startDate)
 		vpnConfig.Set("end_date", endDate)
 		vpnConfig.Set("type", "OUTLINE")
-		vpnConfig.Set("usage_in_gb", plan.GetInt("usage_limit_gb"))
+		vpnConfig.Set("usage_in_gb", remainDataGb)
+		vpnConfig.Set("remain_data_mb", remainDataGb*1000)
 		vpnConfig.Set("server", server.Id)
 		vpnConfig.Set("connection_data", string(jsonAccessKeyConfig))
 		if err := app.Save(vpnConfig); err != nil {
+			log.Fatalln(err.Error())
 			return err
 		}
 		order.Set("vpn_config", vpnConfig.Id)
@@ -161,7 +166,6 @@ func CheckActiveServersHealth(app *pocketbase.PocketBase) (serverStatuses []cons
 		return nil, err
 	}
 	for _, server := range servers {
-		fmt.Printf("server: %v", server)
 		apiUrl := server.GetString("management_api_url")
 		healthy, err := outlineApi.CheckServerHealth(apiUrl)
 		if err != nil {
