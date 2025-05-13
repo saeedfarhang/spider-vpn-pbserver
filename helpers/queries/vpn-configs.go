@@ -62,7 +62,7 @@ func HandleConfigsExpiry(app *pocketbase.PocketBase) (err error) {
 		if err != nil {
 			return fmt.Errorf("error: %v", err)
 		}
-		if time.Since(vpnConfig.GetDateTime("end_date").Time()).Seconds() > 0 || vpnConfig.GetInt("remain_data_mb") == 0 {
+		if time.Since(vpnConfig.GetDateTime("end_date").Time()).Seconds() > 0 || vpnConfig.GetInt("remain_data_mb") < 0 {
 			if err := app.Delete(expiredOrder); err != nil {
 				return fmt.Errorf("error: %v", err)
 			} else if err := app.Delete(vpnConfig); err != nil {
