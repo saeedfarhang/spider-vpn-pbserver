@@ -14,8 +14,8 @@ import (
 
 func HandleConfigsExpiry(app *pocketbase.PocketBase) (err error) {
 	now := time.Now().UTC()
-	startNoticeDuration := now.Add(time.Hour * 2)
-	remainDataMb := 100
+	startNoticeDuration := now.Add(time.Hour * 4)
+	remainDataMb := 500
 
 	nearExpiryOrders := []*core.Record{}
 	expiredOrders := []*core.Record{}
